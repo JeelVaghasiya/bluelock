@@ -216,6 +216,10 @@ def nginx_conf() -> Path:
            .replace("${TL_REGION}", "ap-south").replace("/etc/nginx/certs/server/", f"{srv}/")
            .replace("/etc/nginx/certs/ca.crt", str(CERTS / "ca.crt")))
     tpl = re.sub(r"\n\s*resolver [^\n]*", "", tpl).replace("access_log /dev/stdout tl;", f"access_log {LOGS}/nginx-access.log tl;")
+    # Compatibility with nginx < 1.25.1 (e.g. Ubuntu 22.04 / Colab default nginx 1.18):
+    # 'http2 on;' directive was added in 1.25.1; older versions require 'listen ... http2;'
+    tpl = re.sub(r"\n\s*http2\s+on\s*;", "", tpl)
+    tpl = re.sub(r"listen\s+(\d+)\s+ssl(?!\s+http2)\s*;", r"listen \1 ssl http2;", tpl)
     conf = RUN / "nginx.conf"
     conf.write_text(f"""worker_processes 1;
 pid {RUN}/nginx.pid;

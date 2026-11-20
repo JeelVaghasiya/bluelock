@@ -4,8 +4,7 @@
 log_format tl '$time_iso8601 "$ssl_client_s_dn" $ssl_client_verify $ssl_protocol $status $request_time $request_length';
 
 server {
-  listen 8443 ssl;
-  http2 on;
+  listen 8443 ssl http2;
   server_name ${TL_SERVER_NAME} localhost;
   access_log /dev/stdout tl;
   server_tokens off;
