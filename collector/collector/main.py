@@ -31,7 +31,8 @@ from .stores import open_stores
 QMAX = 10_000
 
 
-async def serve(app, port: int, host: str = "0.0.0.0") -> None:
+async def serve(app, port: int, host: str | None = None) -> None:
+    host = host or os.environ.get("BIND_HOST", "0.0.0.0")  # native.py: 127.0.0.1 (raw UI never on the LAN)
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False))
     await server.serve()
 
@@ -67,7 +68,8 @@ async def amain() -> None:
     analyse = Analyse(q["agg"], q["records"], c,
                       FastPath(s.threshold_for, int((s.cfg.get("fast_path") or {}).get("consecutive_samples", 3))),
                       SecurityL0(int(sec.get("window_s", 60)), int(sec.get("brute_force_fails", 10)),
-                                 int(sec.get("spray_distinct_users", 5)), int(sec.get("success_after_fails", 5))),
+                                 int(sec.get("spray_distinct_users", 5)), int(sec.get("success_after_fails", 5)),
+                                 float(sec.get("login_flood_rate", 100))),
                       s.src_tz)
     tx = Transmit(stores, c, ingest_base=s.ingest_base, ca_file=str(s.ca_file), cert=s.client_cert,
                   timeout_s=float(snd.get("timeout_s", 5)), backoff_max_s=float(snd.get("backoff_max_s", 10)),

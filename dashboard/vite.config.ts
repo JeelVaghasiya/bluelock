@@ -9,7 +9,8 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:8000",
+      // `npm run sim:dev` talks to the simulator (:8090); everything else to the SaaS api (:8000)
+      "/api": mode === "sim" ? "http://localhost:8090" : "http://localhost:8000",
       "/ws": { target: "ws://localhost:8000", ws: true },
       "/local": { target: "http://localhost:9090", ws: true },
     },
@@ -17,5 +18,7 @@ export default defineConfig(({ mode }) => ({
   build:
     mode === "onsite"
       ? { outDir: "dist-local", rollupOptions: { input: resolve(__dirname, "local.html") } }
-      : { outDir: "dist", chunkSizeWarningLimit: 1500 },
+      : mode === "sim"
+        ? { outDir: "dist-sim", rollupOptions: { input: resolve(__dirname, "sim.html") } }
+        : { outDir: "dist", chunkSizeWarningLimit: 1500 },
 }));

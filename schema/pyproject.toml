@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trustline-schema"
-version = "1.0.0"
+version = "1.1.0"  # 1.1: finding.pattern += login_flood (additive)
 description = "TrustLine wire schema trustline.v1 - the allow-list shared by collector and SaaS"
 requires-python = ">=3.12"
 dependencies = ["pydantic==2.14.4", "uuid6==2025.0.1"]

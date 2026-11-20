@@ -57,6 +57,17 @@ rules:
       max_blast_radius: 1
     why: "Disk usage on {root} is rising linearly"
 
+  - id: login_flood
+    when: {categories_any: [auth], patterns_any: [login_flood]}
+    action:
+      key: enable_auth_rate_limit
+      text: "Turn on gateway login rate-limiting (fail2ban-style jail) - blocking single IPs cannot stop a distributed flood"
+      reversible: true
+      rollback_key: disable_auth_rate_limit
+      requires_role: tenant-admin
+      max_blast_radius: 500
+    why: "{fail_count} failed logins in {window_s}s across {distinct_users} accounts from many sources ({value}/s, above the site flood threshold)"
+
   - id: auth_attack
     when: {categories_any: [auth]}
     action:

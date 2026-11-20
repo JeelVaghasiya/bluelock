@@ -146,10 +146,10 @@ def new_token() -> str:
 
 async def amain() -> None:
     logging.basicConfig(level="INFO", format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    servers = [uvicorn.Server(uvicorn.Config(internal, host="0.0.0.0", port=int(os.environ.get("INTERNAL_PORT", "8000")), log_level="warning"))]
+    servers = [uvicorn.Server(uvicorn.Config(internal, host=os.environ.get("BIND_HOST", "0.0.0.0"), port=int(os.environ.get("INTERNAL_PORT", "8000")), log_level="warning"))]
     crt, key = TLS_DIR / "server.crt", TLS_DIR / "server.key"
     if crt.exists() and (CA_DIR / "ca.key").exists():
-        servers.append(uvicorn.Server(uvicorn.Config(public, host="0.0.0.0", port=int(os.environ.get("ENROL_PORT", "8444")), log_level="warning",
+        servers.append(uvicorn.Server(uvicorn.Config(public, host=os.environ.get("BIND_HOST", "0.0.0.0"), port=int(os.environ.get("ENROL_PORT", "8444")), log_level="warning",
                                                      ssl_certfile=str(crt), ssl_keyfile=str(key),
                                                      ssl_version=ssl.PROTOCOL_TLS_SERVER)))
     else:

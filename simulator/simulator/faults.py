@@ -15,6 +15,7 @@ CATALOGUE: dict[str, tuple[str | None, float, int, str]] = {
     "service_errors": ("svc", 0.10, 300, "service error rate +magnitude"),
     "login_spray": (None, 1.0, 40, "one attacker IP tries many usernames (1/s)"),
     "brute_force": (None, 2.0, 30, "one attacker IP hammers one account (magnitude/s)"),
+    "login_flood": (None, 150.0, 45, "botnet: magnitude failed logins/s spread over 64 IPs and many accounts"),
     "success_after_failures": (None, 1.0, 10, "8 failures then a successful login"),
     "secret_in_log": (None, 1.0, 0, "one app log line containing a secret (target = rule name)"),
     "dup_burst": (None, 2.0, 0, "re-send the last tick magnitude times with identical event ids"),
@@ -46,6 +47,7 @@ class FaultBook:
     faults: list[Fault] = field(default_factory=list)
     failed_over: set[str] = field(default_factory=set)
     blocked_ips: set[str] = field(default_factory=set)
+    auth_rate_limited: bool = False  # gateway login rate-limit (remediation for login_flood)
 
     def add(self, f: Fault) -> None:
         self.faults.append(f)

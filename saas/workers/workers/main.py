@@ -221,7 +221,7 @@ class Workers:
                   r.get("metric"), r.get("value"), r.get("threshold"), r.get("baseline"), r.get("z"),
                   r.get("fail_count"), r.get("distinct_users"), r.get("window_s"), pid) for r in findings])
             for r in findings:
-                live.append(("finding", {"id": r["finding_id"], **r}, {"breach_ts": r["breach_ts"]}))
+                live.append(("finding", {"id": r["finding_id"], **r}, {"breach_ts": r["breach_ts"], "lane": lane}))
         if events:
             await conn.executemany(
                 "INSERT INTO events(tenant_id, collector_id, src, template_id, event_ts, win_s, category, level,"
@@ -338,9 +338,9 @@ class Workers:
             elif r["type"] == "finding":
                 outs += t.engine.on_finding(r, n)
         if outs:
-            await self.persist_aiops(t, outs)
+            await self.persist_aiops(t, outs, lane)
 
-    async def persist_aiops(self, t: Tenant, outs: list) -> None:
+    async def persist_aiops(self, t: Tenant, outs: list, lane: str = "live") -> None:
         events = []
         async with tenant_tx(self.pool, t.name) as conn:
             for o in outs:
@@ -374,7 +374,11 @@ class Workers:
                                                 "affected": ev["affected"], "alert_count": len(inc.members),
                                                 "confidence": ev["confidence"], "created": o.created,
                                                 "noise": t.engine.noise.as_dict()},
-                                   {"breach_ts": inc.breach_ts}))
+                                   # alert latency = breach -> the incident being RAISED: only the creating
+                                   # event carries breach_ts; later updates (absorbed alerts) are not samples
+                                   # (an incident raised from a post-outage backlog replay is tagged so the SLA
+                                   # reports it separately, exactly like backlog dashboard samples)
+                                   {"breach_ts": inc.breach_ts, "lane": lane} if o.created else {}))
                 elif o.kind == "resolved":
                     await self.resolve(conn, t, inc.incident_id, "auto: all signals normal for 120 s")
                     events.append(("incident", {"id": inc.incident_id, "incident_id": inc.incident_id,

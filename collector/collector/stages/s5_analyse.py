@@ -88,9 +88,19 @@ class FastPath:
 class SecurityL0:
     """Login-attack detection per coded source IP over a sliding window."""
 
-    def __init__(self, window_s: int = 60, brute: int = 10, spray_users: int = 5, saf: int = 5):
+    FLOOD_WIN = 5  # seconds
+
+    def __init__(self, window_s: int = 60, brute: int = 10, spray_users: int = 5, saf: int = 5,
+                 flood_rate: float = 100.0):
         self.win = window_s
         self.brute, self.spray_users, self.saf = brute, spray_users, saf
+        # Alert-flood control: site-wide failed-login rate. Above flood_rate/s the per-IP findings
+        # would be an alert storm, so ONE aggregate login_flood finding is raised instead.
+        self.flood_rate = flood_rate
+        self.all_fails: deque = deque()  # (ts, ip, user) across every source IP
+        self.flood_until = 0.0
+        self.aggregated = 0  # per-IP findings folded into a flood finding
+        self.last_flood_ips = 0
         self.fails: dict[str, deque] = defaultdict(deque)  # ip -> (ts, user)
         self.successes: dict[str, deque] = defaultdict(deque)
         self.cooldown: dict[tuple[str, str], float] = {}
@@ -137,8 +147,20 @@ class SecurityL0:
                 dq.popleft()
         if ce.auth_outcome == "fail":
             self.fails[ip].append((now, ce.user_code))
+            self.all_fails.append((now, ip, ce.user_code))
         else:
             self.successes[ip].append((now, ce.user_code))
+        while self.all_fails and now - self.all_fails[0][0] > self.FLOOD_WIN:
+            self.all_fails.popleft()
+        # rate over the span actually observed (>= 1 s), so a flood is called within ~1 s - before any
+        # single IP crosses its own brute/spray threshold and the per-IP storm starts
+        span = max(1.0, now - self.all_fails[0][0]) if self.all_fails else self.FLOOD_WIN
+        rate = len(self.all_fails) / span
+        if len(self.all_fails) >= self.flood_rate and rate > self.flood_rate:
+            self.flood_until = now + 30
+            if now - self.cooldown.get(("*", "login_flood"), 0) >= 30:
+                self.cooldown[("*", "login_flood")] = now
+                return self._flood(ce, src_tz, rate)
         fails = self.fails[ip]
         users = {u for _, u in fails}
         pattern = severity = None
@@ -153,6 +175,9 @@ class SecurityL0:
             strength = min(1.0, len(fails) / (self.brute * 2.5))
         if not pattern:
             return None
+        if pattern != "success_after_failures" and now < self.flood_until:
+            self.aggregated += 1  # part of the flood: already represented by the login_flood finding
+            return None
         last = self.cooldown.get((ip, pattern), 0)
         if now - last < 30 and pattern != "success_after_failures":
             return None
@@ -164,6 +189,21 @@ class SecurityL0:
             "src": ip, "category": "auth", "pattern": pattern, "severity": severity,
             "risk": self._risk(feats, strength), "layer": "L0", "fail_count": len(fails),
             "distinct_users": len(users), "window_s": self.win,
+        }
+
+
+    def _flood(self, ce: CleanEvent, src_tz: str, rate: float) -> dict:
+        now = ce.event_ts
+        self.last_flood_ips = len({i for _, i, _ in self.all_fails})
+        users = {u for _, _, u in self.all_fails}
+        return {
+            "type": "finding", "finding_id": str(uuid.uuid4()), "event_ts": iso(now),
+            "breach_ts": iso(self.all_fails[0][0]), "collect_ts": iso(time.time()), "src_tz": src_tz,
+            "src": ce.src, "category": "auth", "pattern": "login_flood", "severity": "critical",
+            "risk": round(min(1.0, 0.7 + 0.3 * min(1.0, rate / (self.flood_rate * 3))), 3), "layer": "L0",
+            "metric": None, "value": round(rate, 1), "threshold": float(self.flood_rate),
+            "fail_count": len(self.all_fails), "distinct_users": len(users), "window_s": self.FLOOD_WIN,
+            # distinct attacking IPs stays on site (local status); the SaaS gets rate, fails and accounts
         }
 
 
@@ -185,6 +225,7 @@ class Analyse:
                 finding = self.fast.check(ce, self.tz)
             elif ce.kind == "auth":
                 finding = self.sec.observe(ce, self.tz)
+                self.c.findings_aggregated, self.c.flood_ips = self.sec.aggregated, self.sec.last_flood_ips
                 if finding:
                     finding["_raw"] = [ce.rid]
             if finding:

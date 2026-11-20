@@ -53,3 +53,16 @@ def test_failover_clears_link_faults():
     rt.book.add(Fault("latency_ramp", "uplink-1", 9.0, time.time(), 900))
     res = rt.action("failover_uplink", "uplink-1")
     assert res["ok"] and not rt.book.faults
+
+
+def test_login_flood_is_distributed_and_rate_limit_caps_it():
+    rt = SiteRuntime(SITES["acme"], 5)
+    t0 = 1_800_000_000.0
+    rt.book.add(Fault("login_flood", None, 150.0, t0, 45))
+    lines = [ln for _, ls in run(rt, 3, t0) for ln in ls if "198.18.0." in ln]
+    ips = {ln.split(" from ")[1].split()[0] for ln in lines}
+    assert len(lines) >= 450 and len(ips) == 64
+    assert rt.action("enable_auth_rate_limit", None)["ok"]
+    capped = [ln for _, ls in run(rt, 3, t0 + 3) for ln in ls if "198.18.0." in ln]
+    assert len(capped) <= 6
+    assert rt.action("disable_auth_rate_limit", None)["ok"] and not rt.book.auth_rate_limited

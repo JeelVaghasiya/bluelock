@@ -75,6 +75,7 @@ function mockRoute(method: string, path: string, q: URLSearchParams, body: unkno
     if (p === "/security/findings") return mock.findings();
     if (p === "/incidents") return mock.incidents();
     if ((r = m(/^\/incidents\/([^/]+)$/))) return mock.incident(r[1]);
+    if ((r = m(/^\/incidents\/([^/]+)\/investigation$/))) return { investigation: mock.investigations.get(r[1]) ?? null, engine_available: "deterministic" };
     if (p === "/fleet") return mock.fleet();
     if (p === "/delivery") return mock.delivery();
     if (p === "/trust/residency") return mock.residency();
@@ -86,6 +87,7 @@ function mockRoute(method: string, path: string, q: URLSearchParams, body: unkno
   } else {
     if (p === "/auth/login") return { token: "demo", user: mock.me() };
     if ((r = m(/^\/incidents\/([^/]+)\/remediations$/))) return mock.propose(r[1]);
+    if ((r = m(/^\/incidents\/([^/]+)\/investigate$/))) return mock.investigate(r[1]);
     if ((r = m(/^\/incidents\/([^/]+)\/(ack|resolve)$/))) return mock.incidentOp(r[1], r[2]);
     if ((r = m(/^\/remediations\/([^/]+)\/(approve|reject|rollback)$/))) return mock.remediationOp(r[1], r[2]);
     if (p === "/trust/isolation-test") return mock.isolation();

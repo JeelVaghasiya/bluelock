@@ -38,6 +38,7 @@ class SiteRuntime:
         self.held_back: list[dict] = []
         self.pid = 1000
         self.spray_idx = 0
+        self.flood_idx = 0
         self.saf_count = 0
 
     # ---------------------------------------------------------------- helpers
@@ -166,6 +167,15 @@ class SiteRuntime:
         if self.rng.random() < 0.01:
             out.append(sshd_line(stamp, gw, "fail", site.users[1].split("@")[0], site.internal_ips[1], nxt()))
 
+        for f in self.book.of("login_flood", now):
+            # distributed: 64 bot IPs (RFC 2544 benchmark range) x many accounts; a gateway rate-limit caps it
+            n = 2 if self.book.auth_rate_limited else max(1, int(f.magnitude))
+            for _ in range(n):
+                self.flood_idx += 1
+                i = self.flood_idx
+                user = site.users[i % len(site.users)].split("@")[0] if i % 4 else f"admin{i % 97}"
+                out.append(sshd_line(stamp, gw, "invalid" if i % 5 == 0 else "fail", user, f"198.18.0.{i % 64 + 10}", nxt()))
+
         attacker = site.attacker_ips[0]
         if attacker in self.book.blocked_ips:
             return out
@@ -220,6 +230,12 @@ class SiteRuntime:
             b.blocked_ips.update(self.site.attacker_ips if not target else [target])
             n = sum(b.clear(k) for k in ("login_spray", "brute_force", "success_after_failures"))
             return {"ok": True, "detail": f"blocked attacker source(s); {n} attack(s) stopped"}
+        if key == "enable_auth_rate_limit":
+            b.auth_rate_limited = True
+            return {"ok": True, "detail": "gateway login rate-limit on (fail2ban-style jail): flood capped at 2/s"}
+        if key == "disable_auth_rate_limit":
+            b.auth_rate_limited = False
+            return {"ok": True, "detail": "gateway login rate-limit removed"}
         if key == "unblock_source_ip":
             b.blocked_ips.clear()
             return {"ok": True, "detail": "block removed"}

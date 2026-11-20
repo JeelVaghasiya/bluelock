@@ -96,6 +96,26 @@ def test_l0_spray_brute_and_success_after_failures():
     assert f["pattern"] == "success_after_failures" and f["severity"] == "critical"
 
 
+def test_l0_login_flood_aggregates_alert_storm():
+    """150 failed logins/s from 64 IPs: ONE login_flood finding, per-IP findings folded into it,
+    and the finding validates against the wire schema."""
+    from trustline_schema.v1 import FindingRecord
+    sec = SecurityL0()
+    out = []
+    for s in range(6):
+        for k in range(150):
+            i = s * 150 + k
+            f = sec.observe(auth(T0 + s + k / 150, f"u:{i % 40:012x}", ip=f"ip:{i % 64:012x}"), "+05:30")
+            if f:
+                out.append(f)
+    floods = [f for f in out if f["pattern"] == "login_flood"]
+    assert len(floods) == 1 and len(out) <= 3  # not 64+ per-IP alerts
+    f = floods[0]
+    assert f["value"] > 100 and f["threshold"] == 100 and f["severity"] == "critical" and f["window_s"] == 5
+    assert sec.aggregated > 0 and sec.last_flood_ips == 64
+    FindingRecord.model_validate(f)
+
+
 # ------------------------------------------------------------------ policy + transmit + egress
 @pytest.fixture
 def stack(tmp_path):
@@ -175,3 +195,16 @@ def test_outbox_failure_backoff_then_backlog_order(stack):
     waits = [tx._backoff() for _ in range(50)]
     assert all(4 <= w <= 12 for w in waits)
     json.dumps(c.as_dict())
+
+
+def test_raw_vault_spans_map_onto_the_raw_line():
+    import json as _j
+    from collector.localui import body_spans
+    msg = 'login "x" token=ghp_SECRET1234 ok'
+    body = _j.dumps({"ts": "t", "host": "api-01", "msg": msg})
+    s0 = msg.index("ghp_")
+    [[s, e, rule]] = body_spans(body, [[s0, s0 + 14, "github_token"]])
+    assert body[s:e] == "ghp_SECRET1234" and rule == "github_token"
+    sl = "<38>Nov 21 04:39:16 gw-01 sshd[1075]: password=hunter2 from 10.0.1.11"
+    [[s, e, _]] = body_spans(sl, [[0, 16, "password"]])
+    assert sl[s:e] == "password=hunter2"

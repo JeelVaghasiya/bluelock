@@ -129,6 +129,26 @@ def test_priority_table_and_auth_rule():
     assert ev["rule"] == "auth_attack" and "Block source" in ev["action"]["text"]
 
 
+def test_login_flood_storm_is_one_incident_with_rate_limit_action():
+    """A flood finding plus per-IP findings from 30 different IPs: ONE incident, login_flood rule."""
+    c = Correlator()
+    flood = Alert(alert_id="f", src="h:000000000001", metric=None, layer="L0", onset_ts=iso(T0), breach_ts=iso(T0),
+                  last_ts=iso(T0), severity="critical", category="auth", pattern="login_flood", value=150.0,
+                  risk=0.9, fail_count=750, distinct_users=40, window_s=5, layers={"L0"})
+    inc, new = c.add(flood, T0)
+    assert new
+    for i in range(30):
+        a = Alert(alert_id=f"a{i}", src=f"ip:{i:012x}", metric=None, layer="L0", onset_ts=iso(T0 + timedelta(seconds=i)),
+                  breach_ts=iso(T0), last_ts=iso(T0), severity="high", category="auth", pattern="spray",
+                  risk=0.8, fail_count=12, distinct_users=6, window_s=60, layers={"L0"})
+        other, created = c.add(a, T0 + timedelta(seconds=i))
+        assert not created and other is inc
+    assert len(c.open) == 1 and len(inc.members) == 31
+    ev = explain(inc, c, PLAYBOOK)
+    assert ev["rule"] == "login_flood" and ev["action"]["key"] == "enable_auth_rate_limit"
+    assert ev["action"]["rollback_key"] == "disable_auth_rate_limit" and ev["noise"]["raw_alerts"] == 31
+
+
 # ------------------------------------------------------------------ engine end to end
 def test_engine_latency_ramp_story():
     eng = TenantEngine("acme", PLAYBOOK, warmup_windows=20)

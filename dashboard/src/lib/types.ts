@@ -247,3 +247,32 @@ export interface WsEnvelope {
   timing?: Record<string, string | boolean | undefined>;
   data: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
+
+export interface InvestigationCitation { src: string; metric: string; value: number | null; baseline: number | null; z: number | null; weight: number | null; role: "root_cause" | "impacted" | "context" }
+export interface Investigation {
+  incident_id: string;
+  engine: "gemini" | "claude" | "deterministic";
+  model: string | null;
+  fallback_reason: string | null;
+  diagnosis: {
+    summary: string;
+    root_cause: string;
+    root_cause_reasoning: string;
+    citations: InvestigationCitation[];
+    layers_agreeing: string[];
+    confidence: number;
+    recommended_action: string;
+    action_rationale: string;
+    rollback_plan: string;
+    risk: "low" | "medium" | "high";
+    caveats: string[];
+  };
+  trace: { step: "tool" | "note"; tool?: string; input?: Record<string, unknown>; ok?: boolean; ms?: number; result_preview?: string; text?: string }[];
+  queued: { action_id: string | null; state: string; note?: string } | null;
+  policy_note: string | null;
+  requires_approval: boolean;
+  usage: { requests?: number; input_tokens?: number; output_tokens?: number };
+  ms: number;
+  at: string;
+  data_sent: string;
+}

@@ -93,7 +93,7 @@ class FindingRecord(_Strict):
     src: SrcId
     category: Literal["auth", "threshold", "anomaly", "connectivity"]
     pattern: Literal[
-        "brute_force", "spray", "success_after_failures",
+        "brute_force", "spray", "success_after_failures", "login_flood",
         "threshold_breach", "edge_anomaly", "link_down",
     ]
     severity: Severity

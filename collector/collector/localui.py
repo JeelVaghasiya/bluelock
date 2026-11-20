@@ -18,6 +18,31 @@ from fastapi.staticfiles import StaticFiles
 from .models import Counters
 from .redact.pseudonym import Pseudonymizer
 from .settings import VERSION, Settings
+from .stages.s2_filter import SYSLOG
+
+
+def body_spans(body: str, spans: list) -> list:
+    """The redactor reports spans as offsets into the parsed message; map them onto the raw line the UI shows
+    (the `msg` field of a JSON line - possibly JSON-escaped - or the message part of a syslog line)."""
+    if not spans or not body:
+        return spans or []
+    m = SYSLOG.match(body)
+    if m:
+        off = m.start(8)
+        return [[s + off, e + off, *rest] for s, e, *rest in spans]
+    try:
+        msg = json.loads(body).get("msg")
+    except (ValueError, AttributeError):
+        return spans
+    if not isinstance(msg, str):
+        return spans
+    for ascii_ in (False, True):
+        enc = json.dumps(msg, ensure_ascii=ascii_)[1:-1]
+        off = body.find(enc)
+        if off >= 0:
+            pos = lambda i: off + len(json.dumps(msg[:i], ensure_ascii=ascii_)) - 2  # noqa: E731
+            return [[pos(s), pos(e), *rest] for s, e, *rest in spans]
+    return []
 from .stages.s1_collect import Collect
 from .stages.s6_policy import Policy
 from .stages.s7_transmit import Transmit
@@ -34,6 +59,7 @@ def build_app(s: Settings, stores: Stores, c: Counters, tx: Transmit, policy: Po
         now = time.time()
         return {
             "site": s.site, "collector_id": s.collector_id, "region": s.region, "version": VERSION,
+            "outage_until": tx.outage_until if tx.outage_until > time.time() else None,
             "config_hash": s.config_hash, "ingest_base": s.ingest_base, "src_tz": s.src_tz,
             "saas": {"reachable": tx.reachable, "last_ack_ts": tx.last_ack_ts, "last_error": tx.last_error,
                      "fail_streak": tx.fail_streak, "next_try_in_s": max(0, round(tx.next_try - now, 1))},
@@ -48,7 +74,7 @@ def build_app(s: Settings, stores: Stores, c: Counters, tx: Transmit, policy: Po
     async def raw(limit: int = Query(200, le=1000), q: str | None = None, secrets: bool = False):
         rows = await asyncio.to_thread(stores.raw.query, limit, q, secrets)
         for r in rows:
-            r["spans"] = json.loads(r["spans"]) if r.get("spans") else []
+            r["spans"] = body_spans(r.get("body", ""), json.loads(r["spans"]) if r.get("spans") else [])
         return rows
 
     @app.get("/local/egress")
@@ -76,7 +102,7 @@ def build_app(s: Settings, stores: Stores, c: Counters, tx: Transmit, policy: Po
         refs = json.loads(e["raw_refs"]) if e.get("raw_refs") else []
         raws = await asyncio.to_thread(stores.raw.get_many, refs[:50])
         for r in raws:
-            r["spans"] = json.loads(r["spans"]) if r.get("spans") else []
+            r["spans"] = body_spans(r.get("body", ""), json.loads(r["spans"]) if r.get("spans") else [])
         out = {k: v for k, v in e.items() if k != "raw_refs"}
         out["json"] = json.loads(e["json_text"]) if e.get("json_text") else None
         out.pop("json_text", None)
@@ -104,6 +130,13 @@ def build_app(s: Settings, stores: Stores, c: Counters, tx: Transmit, policy: Po
     @app.get("/local/actions")
     async def actions():
         return list(reversed(action_log))
+
+    @app.post("/local/debug/outage")
+    async def outage(seconds: int = Query(60, ge=0, le=900)):
+        """Pretend the SaaS is unreachable for N seconds (0 ends it). Payloads keep being sealed
+        into the outbox; when the window ends the backlog drains oldest-first."""
+        tx.outage_until = time.time() + seconds if seconds else 0.0
+        return {"ok": True, "outage_until": tx.outage_until or None}
 
     @app.post("/local/debug/leak-field")
     async def leak_field():

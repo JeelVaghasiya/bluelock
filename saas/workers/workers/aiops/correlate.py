@@ -110,6 +110,8 @@ class Correlator:
                 continue
             if m.src == a.src:
                 return True
+            if a.category == "auth" and m.category == "auth":
+                return True  # one login campaign: many attacking IPs, one incident (alert-storm control)
             d = self.distance(m.src, a.src)
             if d is not None and d <= 2:
                 return True

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from tl_common.config import home_region, iso, load_yaml, now, parse_ts, tenants_file
 from tl_common.db import tenant_tx
 
+from . import investigator
 from .auth import User, admin_user, current_user, decode, login, tenant_user
 from .regions import REGIONS
 
@@ -343,10 +344,18 @@ async def audit(c, user: User | str, action: str, target: str | None, detail: di
                     " (current_setting('app.tenant_id'), $1, $2, $3, $4, $5)", actor, role, action, target, detail)
 
 
-@app.post("/api/incidents/{iid}/{op}")
-async def incident_op(iid: str, op: str, user: User = Depends(tenant_user)):
-    if op not in ("ack", "resolve"):
-        raise HTTPException(404)
+# Explicit paths: a generic /{op} route would shadow /investigate and /remediations below.
+@app.post("/api/incidents/{iid}/ack")
+async def incident_ack(iid: str, user: User = Depends(tenant_user)):
+    return await incident_op(iid, "ack", user)
+
+
+@app.post("/api/incidents/{iid}/resolve")
+async def incident_resolve(iid: str, user: User = Depends(tenant_user)):
+    return await incident_op(iid, "resolve", user)
+
+
+async def incident_op(iid: str, op: str, user: User):
     if op == "resolve" and user.role != "tenant-admin":
         raise HTTPException(403, "tenant-admin role required")
     status = "acknowledged" if op == "ack" else "resolved"
@@ -363,36 +372,75 @@ async def incident_op(iid: str, op: str, user: User = Depends(tenant_user)):
 ROLE_RANK = {"tenant-viewer": 0, "tenant-admin": 1}
 
 
+@app.get("/api/incidents/{iid}/investigation")
+async def investigation(iid: str, user: User = Depends(tenant_user)):
+    return {"investigation": investigator.CACHE.get((user.tenant, iid)),
+            "engine_available": investigator.engine_available()}
+
+
+@app.post("/api/incidents/{iid}/investigate")
+async def investigate(iid: str, user: User = Depends(tenant_user)):
+    """Run the AI Investigator: read-only tools over metadata -> grounded diagnosis -> at most one
+    playbook action queued as `proposed` (a tenant-admin still has to approve it)."""
+    async with tx(user) as c:
+        if not await c.fetchval("SELECT 1 FROM incidents WHERE incident_id=$1", iid):
+            raise HTTPException(404, "no such incident")
+
+        async def enqueue(incident_id: str, by: str):
+            pending = await c.fetchval("SELECT action_id FROM remediations WHERE incident_id=$1 AND state='proposed'",
+                                       incident_id)
+            if pending:
+                return {"action_id": str(pending), "state": "proposed", "note": "already awaiting approval"}
+            try:
+                return await _propose(c, user, incident_id, by)
+            except HTTPException as e:
+                return {"action_id": None, "state": "not_queued", "note": e.detail}
+
+        out = await investigator.investigate(c, user.tenant, iid, enqueue)
+        d = out["diagnosis"]
+        await audit(c, user, "investigation.completed", iid, {
+            "engine": out["engine"], "model": out["model"], "root_cause": d.get("root_cause"),
+            "recommended_action": d.get("recommended_action"), "confidence": d.get("confidence"),
+            "tools": [t["tool"] for t in out["trace"] if t.get("step") == "tool"],
+            "queued": out["queued"], "policy_note": out["policy_note"], "fallback_reason": out["fallback_reason"]})
+    return out
+
+
 @app.post("/api/incidents/{iid}/remediations")
 async def propose(iid: str, user: User = Depends(tenant_user)):
     """Propose the playbook action. The policy check runs here and is stored with the proposal."""
     async with tx(user) as c:
-        i = await c.fetchrow("SELECT evidence, root_cause_src, status FROM incidents WHERE incident_id=$1", iid)
-        if not i:
-            raise HTTPException(404)
-        ev = i["evidence"] or {}
-        act = ev.get("action") or {}
-        if not act.get("executable"):
-            raise HTTPException(409, "this playbook rule has no executable action (investigate manually)")
-        coll = await c.fetchval("SELECT collector_id FROM health_states WHERE src=$1", i["root_cause_src"])
-        checks = [
-            {"check": "reversible", "ok": bool(act.get("reversible")) or act.get("key") == "restart_service",
-             "detail": f"rollback: {act.get('rollback_key') or 'none'}"},
-            {"check": "blast_radius", "ok": (ev.get("blast_radius") or 1) <= (act.get("max_blast_radius") or 99),
-             "detail": f"{ev.get('blast_radius')} <= {act.get('max_blast_radius')}"},
-            {"check": "approver_role", "ok": True, "detail": f"requires {act.get('requires_role')} to approve"},
-            {"check": "collector_known", "ok": coll is not None, "detail": coll or "no collector owns this source"},
-            {"check": "local_allowlist", "ok": True, "detail": "enforced again on site by the collector"},
-        ]
-        ok = all(x["ok"] for x in checks)
-        aid = uuid.uuid4()
-        await c.execute(
-            "INSERT INTO remediations(tenant_id, action_id, incident_id, action_key, params, policy, state,"
-            " collector_id, proposed_by) VALUES (current_setting('app.tenant_id'),$1,$2,$3,$4,$5,$6,$7,$8)",
-            aid, iid, act["key"], {"target": i["root_cause_src"]}, {"checks": checks, "ok": ok},
-            "proposed" if ok else "refused", coll, user.email)
-        await audit(c, user, "remediation.proposed" if ok else "remediation.refused_policy", iid,
-                    {"action_id": str(aid), "action_key": act["key"], "checks": checks})
+        return await _propose(c, user, iid, user.email)
+
+
+async def _propose(c, user: User, iid: str, proposed_by: str) -> dict:
+    i = await c.fetchrow("SELECT evidence, root_cause_src, status FROM incidents WHERE incident_id=$1", iid)
+    if not i:
+        raise HTTPException(404)
+    ev = i["evidence"] or {}
+    act = ev.get("action") or {}
+    if not act.get("executable"):
+        raise HTTPException(409, "this playbook rule has no executable action (investigate manually)")
+    coll = await c.fetchval("SELECT collector_id FROM health_states WHERE src=$1", i["root_cause_src"])
+    checks = [
+        {"check": "reversible", "ok": bool(act.get("reversible")) or act.get("key") == "restart_service",
+         "detail": f"rollback: {act.get('rollback_key') or 'none'}"},
+        {"check": "blast_radius", "ok": (ev.get("blast_radius") or 1) <= (act.get("max_blast_radius") or 99),
+         "detail": f"{ev.get('blast_radius')} <= {act.get('max_blast_radius')}"},
+        {"check": "approver_role", "ok": True, "detail": f"requires {act.get('requires_role')} to approve"},
+        {"check": "collector_known", "ok": coll is not None, "detail": coll or "no collector owns this source"},
+        {"check": "local_allowlist", "ok": True, "detail": "enforced again on site by the collector"},
+    ]
+    ok = all(x["ok"] for x in checks)
+    aid = uuid.uuid4()
+    await c.execute(
+        "INSERT INTO remediations(tenant_id, action_id, incident_id, action_key, params, policy, state,"
+        " collector_id, proposed_by) VALUES (current_setting('app.tenant_id'),$1,$2,$3,$4,$5,$6,$7,$8)",
+        aid, iid, act["key"], {"target": i["root_cause_src"]}, {"checks": checks, "ok": ok},
+        "proposed" if ok else "refused", coll, proposed_by)
+    await audit(c, user, "remediation.proposed" if ok else "remediation.refused_policy", iid,
+                {"action_id": str(aid), "action_key": act["key"], "checks": checks, "proposed_by": proposed_by,
+                 "rollback": act.get("rollback_key") or "none"})
     return {"action_id": str(aid), "state": "proposed" if ok else "refused", "checks": checks}
 
 
@@ -689,16 +737,28 @@ async def snapshot(user: User) -> dict:
         return {"error": e.detail}
 
 
+# An incident is re-published on every update (alert absorbed, remediation, investigation) with the
+# same breach_ts; only its FIRST render is the alert-latency sample, later renders are not "alert raised".
+ALERT_RENDERED: "OrderedDict[str, None]" = OrderedDict()
+
+
 async def render_ack(client: Client, items: list[dict]) -> None:
     """Measured end-to-end latency: start = event/breach timestamp, end = corrected render time."""
     samples = []
     for it in items[:200]:
-        t = HUB.timing.get(f"{client.user.tenant}|{it.get('id')}")
+        key = f"{client.user.tenant}|{it.get('id')}"
+        t = HUB.timing.get(key)
         render = parse_ts(it.get("render_ts"))
         if not t or not render:
             continue
         render = render + timedelta(milliseconds=client.offset_ms)
         kind = it.get("kind", "dash")
+        if kind == "alert":
+            if key in ALERT_RENDERED:
+                continue
+            ALERT_RENDERED[key] = None
+            while len(ALERT_RENDERED) > 20000:
+                ALERT_RENDERED.popitem(last=False)
         start = parse_ts(t.get("breach_ts") if kind == "alert" else t.get("event_ts"))
         if not start:
             continue

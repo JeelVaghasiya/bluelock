@@ -8,6 +8,7 @@ import { ago, cx, fmtMetric, hhmmss, METRIC_LABEL, shortSrc } from "@/lib/format
 import type { IncidentDetail, Remediation } from "@/lib/types";
 import { MetricChart } from "@/charts/MetricChart";
 import { Panel, PrioBadge, Pseudo, Skeleton } from "@/components/ui";
+import { InvestigatorPanel } from "@/components/Investigator";
 
 const STEP_ICON: Record<string, React.ReactNode> = {
   detect: <Radar size={14} />,
@@ -268,6 +269,8 @@ export default function IncidentPage() {
         </div>
 
         <div className="col-span-12 space-y-3 xl:col-span-4">
+          <InvestigatorPanel id={inc.incident_id} resolved={inc.status === "resolved"} />
+
           <Panel title="Confidence" subtitle="0.5·magnitude + 0.3·agreement + 0.2·persistence">
             <div className="flex h-4 overflow-hidden rounded-full bg-panel-3">
               <div className="bg-[#5b6cf0]" style={{ width: `${ev.confidence_parts.magnitude * 100}%` }} title="magnitude" />

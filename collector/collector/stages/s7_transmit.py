@@ -12,10 +12,36 @@ import asyncio
 import gzip
 import hashlib
 import logging
+import os
 import random
 import ssl
 import time
 from datetime import datetime, timezone
+
+import socket
+
+# Static name -> address pins, applied before DNS:
+#  * bore.pub: some ISPs (e.g. Airtel/Jio) sinkhole it, so pin the relay's real address.
+#  * INGEST_HOSTS="nginx-ap=192.168.1.20": LAN mode. The collector dials https://nginx-ap:8443, so
+#    TLS still verifies the server certificate against its real name (nginx-ap), not a bare IP.
+def _pins() -> dict[str, str]:
+    pins = {"bore.pub": os.environ.get("BORE_PUB_IP", "159.223.110.159")}
+    for item in os.environ.get("INGEST_HOSTS", "").split(","):
+        if "=" in item:
+            name, addr = item.split("=", 1)
+            pins[name.strip()] = addr.strip()
+    return pins
+
+
+_PINS = _pins()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _patched_getaddrinfo(host, port, *args, **kwargs):
+    return _orig_getaddrinfo(_PINS.get(host, host), port, *args, **kwargs)
+
+
+socket.getaddrinfo = _patched_getaddrinfo
 
 import httpx
 import orjson
@@ -57,6 +83,7 @@ class Transmit:
         self.last_ack_ts: float | None = None
         self.last_error: str | None = None
         self.on_ack = None  # optional callback(payload_id, status)
+        self.outage_until = 0.0  # debug: simulate the SaaS being unreachable (Simulator dashboard)
 
     # ------------------------------------------------------------------ seal
     def seal(self, payload: Payload, raw_refs: list[int], priority: int, kinds: str) -> int:
@@ -79,12 +106,14 @@ class Transmit:
     def _backoff(self) -> float:
         return min(self.backoff_max, 2 ** min(self.fail_streak, 10)) * random.uniform(0.5, 1.5)
 
-    async def _send(self, client: httpx.AsyncClient, row: dict, lane: str) -> bool:
+    async def _send(self, client: httpx.Client, row: dict, lane: str) -> bool:
         attempt = row["attempts"] + 1
         headers = {"Content-Type": CONTENT_TYPE, "Content-Encoding": "gzip", "X-TL-Attempt": str(attempt),
                    "X-TL-Attempt-Ts": iso(time.time()), "X-TL-Lane": lane}
+        if time.time() < self.outage_until:
+            return await self._failed(row, "ConnectError: simulated SaaS outage (debug)")
         try:
-            r = await client.post("/v1/ingest", content=row["body"], headers=headers)
+            r = await asyncio.to_thread(client.post, "/v1/ingest", content=row["body"], headers=headers)
         except (httpx.TransportError, ssl.SSLError, OSError) as e:
             return await self._failed(row, f"{type(e).__name__}: {e}")
         if r.status_code == 200:
@@ -127,7 +156,7 @@ class Transmit:
     async def run(self) -> None:
         ctx = ssl_context(self.ca_file, self.cert)
         bucket, last_refill = self.rate, time.monotonic()
-        async with httpx.AsyncClient(base_url=self.base, verify=ctx, timeout=self.timeout, http2=False) as client:
+        with httpx.Client(base_url=self.base, verify=ctx, timeout=self.timeout) as client:
             while True:
                 now = time.time()
                 if self.reachable is False and now < self.next_try:

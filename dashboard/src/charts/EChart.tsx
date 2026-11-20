@@ -95,11 +95,26 @@ export function EChart({
     };
   }, []);
 
+  // Animate only the first draw. Later data refreshes update in place: no replayed draw-in
+  // animation, and series are replaced only when the set of series itself changes.
+  const drawn = useRef(false);
+  const lastSig = useRef("");
+  const lastJson = useRef("");
+  const lastTheme = useRef(theme);
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
-    const opt = base ? merge(baseOption() as Record<string, unknown>, option as Record<string, unknown>) : option;
-    c.setOption(opt as EChartsCoreOption, { notMerge: false, replaceMerge: ["series"] });
+    const opt = (base ? merge(baseOption() as Record<string, unknown>, option as Record<string, unknown>) : option) as Record<string, unknown>;
+    const json = JSON.stringify(opt);
+    if (drawn.current && json === lastJson.current && lastTheme.current === theme) return; // nothing changed
+    lastJson.current = json;
+    lastTheme.current = theme;
+    const series = (Array.isArray(opt.series) ? opt.series : opt.series ? [opt.series] : []) as Record<string, unknown>[];
+    const sig = series.map((s) => `${s.type}:${s.id ?? s.name ?? ""}`).join("|");
+    const structural = !drawn.current || sig !== lastSig.current;
+    lastSig.current = sig;
+    c.setOption({ ...opt, animation: !drawn.current } as EChartsCoreOption, structural ? { replaceMerge: ["series"] } : { lazyUpdate: true });
+    drawn.current = true;
   }, [option, theme, base]);
 
   useEffect(() => {

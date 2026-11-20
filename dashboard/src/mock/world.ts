@@ -5,6 +5,7 @@
  * produces: pseudonymous codes only, health from the same thresholds, incidents with evidence.
  */
 import type {
+  Investigation,
   Collector, EventRow, Evidence, Finding, HealthState, IncidentDetail, IncidentRow, Kind, MetricQuery,
   Overview, OverviewSeries, Remediation, Slo, Source, Topology,
 } from "@/lib/types";
@@ -609,6 +610,42 @@ export const mock = {
     }
     auditTrail.push({ actor: "admin@acme.test", role: "tenant-admin", action: `incident.${op}`, target: id, detail: {}, at: iso(Date.now()) });
     return { incident_id: id, status: op === "ack" ? "acknowledged" : "resolved" };
+  },
+
+  investigations: new Map<string, Investigation>(),
+
+  /** Demo-mode stand-in for the in-region deterministic investigator (same shape as the API). */
+  investigate(id: string): Investigation {
+    const t0 = Date.now();
+    const ev = this.incident(id).incident.evidence;
+    const sigs = [...ev.signals].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0)).slice(0, 6);
+    const top = sigs[0];
+    const pending = (remediations.get(id) ?? []).find((r) => r.state === "proposed");
+    const queued = ev.action.executable ? (pending ? { action_id: pending.action_id, state: "proposed", note: "already awaiting approval" } : { action_id: this.propose(id).action_id, state: "proposed" }) : null;
+    const inv: Investigation = {
+      incident_id: id, engine: "deterministic", model: null, fallback_reason: "demo mode", requires_approval: true, policy_note: null, queued,
+      diagnosis: {
+        summary: `${ev.title}. The origin is most likely ${ev.root_cause}` + (top ? `: ${top.metric} is ${top.value} against a baseline of ${top.baseline} (z=${top.z}, weight ${top.weight})` : "") +
+          `. ${ev.affected.length} dependent component(s) degraded after it; ${ev.layers_agreeing.length} detection layer(s) agree (${ev.layers_agreeing.join(", ")}), confidence ${ev.confidence}.` +
+          (ev.action.executable ? ` Recommended: ${ev.action.key} - queued for approval.` : " No safe automatic action; investigate manually."),
+        root_cause: ev.root_cause, root_cause_reasoning: ev.why,
+        citations: sigs.map((s) => ({ src: s.src, metric: s.metric, value: s.value, baseline: s.baseline, z: s.z, weight: s.weight, role: s.src === ev.root_cause ? "root_cause" : "impacted" })),
+        layers_agreeing: ev.layers_agreeing, confidence: ev.confidence,
+        recommended_action: ev.action.executable ? ev.action.key : "investigate", action_rationale: ev.action.text,
+        rollback_plan: ev.action.reversible && ev.action.rollback_key && ev.action.rollback_key !== "none" ? `${ev.action.rollback_key} restores the previous state` : "not reversible - approve only with a manual recovery plan",
+        risk: ev.action.reversible ? "low" : "medium",
+        caveats: ev.layers_agreeing.length < 2 ? ["only one detection layer agrees - treat as a lead, not a conclusion"] : [],
+      },
+      trace: [
+        { step: "tool", tool: "get_incident_context", input: { incident_id: id }, ok: true, ms: 3.1, result_preview: `{"confidence": ${ev.confidence}, "signals": ${ev.signals.length}}` },
+        { step: "tool", tool: "query_topology", input: { source_id: ev.root_cause }, ok: true, ms: 1.4, result_preview: `{"dependents": ${JSON.stringify(ev.affected.slice(0, 3))}}` },
+        { step: "tool", tool: "fetch_playbook_rule", input: { rule_name: ev.rule }, ok: true, ms: 0.4, result_preview: `{"action": {"key": "${ev.action.key}"}}` },
+      ],
+      usage: { requests: 0 }, ms: Date.now() - t0 + 40, at: iso(Date.now()), data_sent: "none (ran in-region)",
+    };
+    this.investigations.set(id, inv);
+    auditTrail.push({ actor: "admin@acme.test", role: "tenant-admin", action: "investigation.completed", target: id, detail: { engine: "deterministic" }, at: iso(Date.now()) });
+    return inv;
   },
 
   propose(id: string) {

@@ -66,6 +66,8 @@ class Counters:
     dropped_noise: int = 0
     dropped_unknown: int = 0
     dup_source_events: int = 0
+    findings_aggregated: int = 0  # per-IP auth findings folded into a login_flood finding
+    flood_ips: int = 0  # distinct attacking IPs in the last login_flood (stays on site)
     redactions_total: int = 0
     redactions_by_rule: dict[str, int] = field(default_factory=dict)
     identities_coded: int = 0

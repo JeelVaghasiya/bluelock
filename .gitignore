@@ -29,4 +29,6 @@ dashboard/dist-local/
 dist/
 dashboard/dist-mock/
 collector/static/
+simulator/static/
+dashboard/dist-sim/
 .run/

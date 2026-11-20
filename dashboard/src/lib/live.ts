@@ -29,8 +29,13 @@ export function startLive(qc: QueryClient, navigate: (to: string) => void): () =
   let offsetMs = 0;
   const seenIncidents = new Set<string>();
 
+  // Coalesce live envelopes: at most one refetch wave every MIN_GAP ms. Envelopes arrive ~1/s per
+  // collector; refetching on each one made every panel reload (and re-animate) every second.
+  const MIN_GAP = 2500;
+  let lastFlush = 0;
   const flush = async () => {
     flushTimer = undefined;
+    lastFlush = Date.now();
     const kinds = [...pending];
     pending.clear();
     const keys = new Set<string>();
@@ -42,7 +47,7 @@ export function startLive(qc: QueryClient, navigate: (to: string) => void): () =
     send({ type: "render_ack", items: items.map((i) => ({ ...i, render_ts: new Date(render).toISOString() })) });
   };
   const schedule = () => {
-    if (flushTimer === undefined) flushTimer = window.setTimeout(flush, 350);
+    if (flushTimer === undefined) flushTimer = window.setTimeout(flush, Math.max(350, MIN_GAP - (Date.now() - lastFlush)));
   };
 
   const notify = (inc: { incident_id: string; priority: string; title: string; created?: boolean; status?: string }) => {

@@ -29,6 +29,19 @@ SEEN: dict[str, dict] = {}
 STATS = {"stored": 0, "duplicate": 0, "rejected": 0, "records": {}, "redactions": 0, "seqs": set()}
 LOCK = threading.Lock()
 DOWN_UNTIL = 0.0
+REGION = "ap-south"  # this mock plays the ap-south ingest
+
+
+def _homes() -> dict[str, str]:
+    try:
+        import yaml
+        t = yaml.safe_load((ROOT / "config" / "tenants.yaml").read_text(encoding="utf-8"))["tenants"]
+        return {k: v["home_region"] for k, v in t.items()}
+    except Exception:  # PyYAML missing: fall back to the demo tenants
+        return {"acme": "ap-south", "globex": "eu-west"}
+
+
+HOMES = _homes()
 
 
 class H(BaseHTTPRequestHandler):
@@ -58,6 +71,9 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         global DOWN_UNTIL
         n = int(self.headers.get("Content-Length", 0))
+        if n > 5 * 1024 * 1024:  # like nginx client_max_body_size: refuse on the header alone
+            self.close_connection = True
+            return self._json(413, {"error": "too_large"})
         raw = self.rfile.read(n)
         if self.path.startswith("/admin/down"):
             DOWN_UNTIL = time.time() + float(self.path.rsplit("=", 1)[-1])
@@ -67,8 +83,18 @@ class H(BaseHTTPRequestHandler):
         cert = self.connection.getpeercert()
         subject = dict(x[0] for x in cert.get("subject", ())) if cert else {}
         tenant = subject.get("organizationName", "").removeprefix("tenant-")
+        # same refusal order as the real ingest-api: residency -> size -> encoding -> schema -> identity
+        home = HOMES.get(tenant)
+        if home and home != REGION:
+            return self._json(403, {"error": "residency_denied", "detail": f"tenant {tenant} is homed in {home}, not {REGION}"})
+        if len(raw) > 5 * 1024 * 1024:
+            return self._json(413, {"error": "too_large"})
         try:
-            p = Payload.model_validate_json(gzip.decompress(raw))
+            body = gzip.decompress(raw)
+        except (OSError, EOFError) as e:
+            return self._json(400, {"error": "bad_encoding", "detail": str(e)[:200]})
+        try:
+            p = Payload.model_validate_json(body)
         except Exception as e:
             with LOCK:
                 STATS["rejected"] += 1

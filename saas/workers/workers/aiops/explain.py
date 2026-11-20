@@ -26,13 +26,15 @@ class _Fmt(dict):
 
 
 def match_rule(playbook: dict, root_kind: str, root_metrics: set[str], impacted_metrics: set[str],
-               categories: set[str], rising: bool) -> dict:
+               categories: set[str], rising: bool, patterns: set[str] | None = None) -> dict:
     rules = playbook.get("rules") or []
     for r in rules:
         w = r.get("when") or {}
         if not w:
             continue
         if "categories_any" in w and not (categories & set(w["categories_any"])):
+            continue
+        if "patterns_any" in w and not ((patterns or set()) & set(w["patterns_any"])):
             continue
         if "root_kind" in w and w["root_kind"] != root_kind:
             continue
@@ -87,7 +89,8 @@ def explain(inc: Incident, corr: Correlator, playbook: dict) -> dict:
     impacted_metrics = {m.metric for m in inc.members if m.src != root and m.metric}
     categories = {m.category for m in inc.members}
     rising = any((m.z or 0) > 0 for m in root_members)
-    rule = match_rule(playbook, root_kind, root_metrics, impacted_metrics, categories, rising)
+    patterns = {m.pattern for m in inc.members if m.pattern}
+    rule = match_rule(playbook, root_kind, root_metrics, impacted_metrics, categories, rising, patterns)
     rm = max(root_members, key=lambda m: abs(m.z or 0), default=inc.members[0])
     others = [m for m in inc.members if m.src != root]
     lead = (min((ts(m.onset_ts) for m in others), default=ts(rm.onset_ts)) - ts(rm.onset_ts)).total_seconds()
@@ -168,6 +171,7 @@ def _title(rule: str, root: str | None, m) -> str:
         "cpu_saturation": "CPU saturation",
         "disk_fill": "Disk filling up",
         "auth_attack": f"Login attack ({(m.pattern or 'auth').replace('_', ' ')})",
+        "login_flood": "Login flood (distributed, >100 failed logins/s)",
         "service_errors": "Service error spike",
         "generic_anomaly": "Anomalous behaviour",
     }

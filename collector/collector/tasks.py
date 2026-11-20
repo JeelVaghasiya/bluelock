@@ -105,7 +105,7 @@ async def actions(q: asyncio.Queue, s: Settings, pseudo: Pseudonymizer, stores: 
                         res = (await site.post("/action", json={"site": s.site, "key": key, "target": real})).json()
                         status = "executed" if res.get("ok") else "failed"
                         detail = res.get("detail", "")
-                        if key.startswith(("failback", "unblock", "scale_in")) and status == "executed":
+                        if key.startswith(("failback", "unblock", "scale_in", "disable")) and status == "executed":
                             status = "rolled_back" if a.get("rollback_of") else status
                     except Exception as e:
                         status, detail = "failed", f"{type(e).__name__}"
