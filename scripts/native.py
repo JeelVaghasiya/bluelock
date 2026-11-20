@@ -270,6 +270,9 @@ def cmd_saas(a) -> None:
         sys.exit("no server certificates in deploy/certs/out (bundle them, or run deploy/certs/gen.sh)")
     RUN.mkdir(exist_ok=True)
     LOGS.mkdir(parents=True, exist_ok=True)
+    if platform.system() == "Linux":
+        sh("killall -9 nats-server bore cloudflared 2>/dev/null || true", check=False)
+        sh("fuser -k 4222/tcp 8222/tcp 8443/tcp 8000/tcp 8001/tcp 8010/tcp 2>/dev/null || true", check=False)
     start_postgres(env)
     procs: dict[str, subprocess.Popen] = {}
     procs["nats"] = spawn("nats", [str(RUN / "bin" / "nats-server"), "-c", str(nats_conf()), "-js"], {
