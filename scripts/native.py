@@ -271,8 +271,9 @@ def cmd_saas(a) -> None:
     RUN.mkdir(exist_ok=True)
     LOGS.mkdir(parents=True, exist_ok=True)
     if platform.system() == "Linux":
-        sh("killall -9 nats-server bore cloudflared 2>/dev/null || true", check=False)
-        sh("fuser -k 4222/tcp 8222/tcp 8443/tcp 8000/tcp 8001/tcp 8010/tcp 2>/dev/null || true", check=False)
+        sh("killall -9 nginx nats-server bore cloudflared 2>/dev/null || true", check=False)
+        sh("fuser -k 8443/tcp 8000/tcp 8001/tcp 8010/tcp 4222/tcp 2>/dev/null || true", check=False)
+        time.sleep(0.5)
     start_postgres(env)
     procs: dict[str, subprocess.Popen] = {}
     procs["nats"] = spawn("nats", [str(RUN / "bin" / "nats-server"), "-c", str(nats_conf()), "-js"], {
@@ -304,7 +305,9 @@ def cmd_saas(a) -> None:
         "NATS_AP_URL": nats.format(u="api", p=env["NATS_API_PASSWORD"]), "JWT_SECRET": env["JWT_SECRET"],
         "USERS_FILE": str(ROOT / "config" / "users.yaml"), "SIMULATOR_URL": a.simulator_url,
         **({"DASHBOARD_DIR": str(dash)} if dash.exists() else {})}, ROOT / "saas" / "api")
-    sh(f"nginx -c {nginx_conf()} -p {RUN}", check=True)
+    conf = nginx_conf()
+    sh(f"nginx -c {conf} -p {RUN} -s stop 2>/dev/null || true", check=False)
+    sh(f"nginx -c {conf} -p {RUN}", check=True)
     wait_port(8443, 10)
     print("  nginx mTLS ingest on :8443")
     if a.tunnel:
