@@ -315,13 +315,13 @@ def cmd_saas(a) -> None:
                           r"listening at (bore\.pub:\d+)")
         url = tunnel("cloudflared", [str(RUN / "bin" / "cloudflared"), "tunnel", "--no-autoupdate", "--url",
                                      "http://127.0.0.1:8000"], r"(https://[a-z0-9-]+\.trycloudflare\.com)")
-        print("\n" + "=" * 72)
-        print(f" Dashboard (share this)   {url or 'cloudflared failed - see .run/logs/cloudflared.log'}")
-        print(f" mTLS ingest relay        {hostport or 'bore failed - see .run/logs/bore.log'}")
+        print("\n" + "=" * 72, flush=True)
+        print(f" Dashboard (share this)   {url or 'cloudflared failed - see .run/logs/cloudflared.log'}", flush=True)
+        print(f" mTLS ingest relay        {hostport or 'bore failed - see .run/logs/bore.log'}", flush=True)
         if hostport:
-            print("\n On your laptop run:")
-            print(f"   python scripts/native.py site --ingest https://{hostport}")
-        print("=" * 72)
+            print("\n On your laptop run:", flush=True)
+            print(f"   python scripts/native.py site --ingest https://{hostport}", flush=True)
+        print("=" * 72, flush=True)
     try:
         supervise(procs)
     finally:
