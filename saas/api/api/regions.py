@@ -37,7 +37,11 @@ class Regions:
                 for i in range(120):
                     try:
                         nc = await nats.connect(nurl, max_reconnect_attempts=-1, name=f"api-{region}")
-                        await nc.subscribe("live.>", cb=lambda m, r=region: on_live(r, m))
+                        def _make_cb(r):
+                            async def _cb(m):
+                                await on_live(r, m)
+                            return _cb
+                        await nc.subscribe("live.>", cb=_make_cb(region))
                         self.nats[region] = nc
                         break
                     except Exception as e:
