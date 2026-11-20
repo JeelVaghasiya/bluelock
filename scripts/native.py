@@ -31,6 +31,10 @@ RUN = ROOT / ".run"
 LOGS = RUN / "logs"
 CERTS = ROOT / "deploy" / "certs" / "out"
 PY = sys.executable
+if platform.system() == "Windows" and (ROOT / ".venv" / "Scripts" / "python.exe").exists():
+    PY = str(ROOT / ".venv" / "Scripts" / "python.exe")
+elif platform.system() != "Windows" and (ROOT / ".venv" / "bin" / "python").exists():
+    PY = str(ROOT / ".venv" / "bin" / "python")
 BORE_VER = "v0.6.0"
 NATS_VER = "v2.15.3"
 CLOUDFLARED_VER = "2026.11.1"
@@ -243,19 +247,22 @@ def nats_conf() -> Path:
     return p
 
 
-def tunnel(name: str, args: list[str], pattern: str, timeout: float = 40) -> str | None:
+def tunnel(name: str, args: list[str], pattern: str, timeout: float = 40) -> tuple[str | None, subprocess.Popen]:
+    log_file = LOGS / f"{name}.log"
+    log_file.unlink(missing_ok=True)
     p = spawn(name, args, {}, RUN)
     rx = re.compile(pattern)
     t = time.time()
     while time.time() - t < timeout:
-        txt = (LOGS / f"{name}.log").read_text(errors="replace")
-        m = rx.search(txt)
-        if m:
-            return m.group(1)
+        if log_file.exists():
+            txt = log_file.read_text(errors="replace")
+            matches = rx.findall(txt)
+            if matches:
+                return matches[-1], p
         if p.poll() is not None:
             break
         time.sleep(0.5)
-    return None
+    return None, p
 
 
 def cmd_saas(a) -> None:
@@ -305,16 +312,21 @@ def cmd_saas(a) -> None:
         "NATS_AP_URL": nats.format(u="api", p=env["NATS_API_PASSWORD"]), "JWT_SECRET": env["JWT_SECRET"],
         "USERS_FILE": str(ROOT / "config" / "users.yaml"), "SIMULATOR_URL": a.simulator_url,
         **({"DASHBOARD_DIR": str(dash)} if dash.exists() else {})}, ROOT / "saas" / "api")
+    wait_port(8000, 30)
     conf = nginx_conf()
     sh(f"nginx -c {conf} -p {RUN} -s stop 2>/dev/null || true", check=False)
     sh(f"nginx -c {conf} -p {RUN}", check=True)
     wait_port(8443, 10)
     print("  nginx mTLS ingest on :8443")
     if a.tunnel:
-        hostport = tunnel("bore", [str(RUN / "bin" / "bore"), "local", "8443", "--to", "bore.pub"],
-                          r"listening at (bore\.pub:\d+)")
-        url = tunnel("cloudflared", [str(RUN / "bin" / "cloudflared"), "tunnel", "--no-autoupdate", "--url",
-                                     "http://127.0.0.1:8000"], r"(https://[a-z0-9-]+\.trycloudflare\.com)")
+        hostport, p_bore = tunnel("bore", [str(RUN / "bin" / "bore"), "local", "8443", "--to", "bore.pub"],
+                                  r"listening at (bore\.pub:\d+)")
+        url, p_cf = tunnel("cloudflared", [str(RUN / "bin" / "cloudflared"), "tunnel", "--no-autoupdate", "--url",
+                                           "http://127.0.0.1:8000"], r"(https://[a-z0-9-]+\.trycloudflare\.com)")
+        if p_bore:
+            procs["bore"] = p_bore
+        if p_cf:
+            procs["cloudflared"] = p_cf
         print("\n" + "=" * 72, flush=True)
         print(f" Dashboard (share this)   {url or 'cloudflared failed - see .run/logs/cloudflared.log'}", flush=True)
         print(f" mTLS ingest relay        {hostport or 'bore failed - see .run/logs/bore.log'}", flush=True)

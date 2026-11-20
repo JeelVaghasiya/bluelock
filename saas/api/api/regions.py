@@ -62,9 +62,18 @@ class Regions:
 
     async def close(self) -> None:
         for nc in self.nats.values():
-            await nc.drain()
+            try:
+                await nc.drain()
+            except Exception:
+                try:
+                    await nc.close()
+                except Exception:
+                    pass
         for p in self.pools.values():
-            await p.close()
+            try:
+                await p.close()
+            except Exception:
+                pass
 
 
 REGIONS = Regions()
