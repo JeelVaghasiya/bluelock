@@ -1,0 +1,16 @@
+# Four health states. A value is Excellent if better than `excellent`, Good if better than
+# `good`, Fair if better than `fair`, otherwise Poor. `lower_is_worse` flips the comparison.
+version: 1
+stale_after_s: 30
+offline_after_s: 45
+signals:
+  cpu:        {stat: p95, excellent: 60,   good: 80,   fair: 90,   unit: "%"}
+  mem:        {stat: avg, excellent: 70,   good: 80,   fair: 90,   unit: "%"}
+  disk:       {stat: max, excellent: 70,   good: 80,   fair: 90,   unit: "%", poor_if_hours_to_full_lt: 24}
+  rtt:        {stat: p95, excellent: 50,   good: 100,  fair: 200,  unit: ms}
+  loss:       {stat: avg, excellent: 0.5,  good: 1,    fair: 3,    unit: "%"}
+  up:         {stat: min, excellent: 1.0,  good: 0.99, fair: 0.95, unit: ratio, lower_is_worse: true}
+  error_rate: {stat: avg, excellent: 0.01, good: 0.02, fair: 0.05, unit: ratio}
+overrides:
+  globex:
+    cpu: {excellent: 50, good: 70, fair: 85}

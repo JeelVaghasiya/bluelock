@@ -1,0 +1,7 @@
+# `python scripts/tl.py init` writes config/users.yaml from this file, filling every
+# scrypt hash from DEMO_PASSWORD. users.yaml itself is gitignored.
+users:
+  - {email: admin@acme.test, tenant: acme, role: tenant-admin, scrypt: ""}
+  - {email: viewer@acme.test, tenant: acme, role: tenant-viewer, scrypt: ""}
+  - {email: admin@globex.test, tenant: globex, role: tenant-admin, scrypt: ""}
+  - {email: ops@trustline.test, tenant: "*", role: platform-ops, scrypt: ""}

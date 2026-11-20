@@ -1,0 +1,32 @@
+# Organiser material and private research - never commit (repo is public)
+others/
+
+# Secrets and generated PKI
+.env
+config/users.yaml
+deploy/certs/out/
+
+# Python
+**/__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# SQLite stores
+*.db
+*.db-wal
+*.db-shm
+
+# Node
+node_modules/
+dashboard/dist/
+dashboard/dist-local/
+
+*.log
+
+# build outputs / runtime
+dist/
+dashboard/dist-mock/
+collector/static/
+.run/

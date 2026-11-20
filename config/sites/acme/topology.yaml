@@ -1,0 +1,24 @@
+# Tier 1 ONLY - real names. Mounted into collector-acme only. The collector sends a
+# pseudonymised TopologyRecord (HMAC codes + roles) to the SaaS for correlation.
+nodes:
+  - {name: web-01,   kind: host, role: web}
+  - {name: web-02,   kind: host, role: web}
+  - {name: api-01,   kind: host, role: api}
+  - {name: db-01,    kind: host, role: db}
+  - {name: gw-01,    kind: host, role: gateway}
+  - {name: web,      kind: svc,  role: web}
+  - {name: api,      kind: svc,  role: api}
+  - {name: db,       kind: svc,  role: db}
+  - {name: uplink-1, kind: link, role: uplink}
+  - {name: uplink-2, kind: link, role: uplink}
+edges:
+  - {dependent: web,    dependency: api,      kind: depends_on}
+  - {dependent: api,    dependency: db,       kind: depends_on}
+  - {dependent: api,    dependency: uplink-1, kind: routes_via}
+  - {dependent: web,    dependency: uplink-1, kind: routes_via}
+  - {dependent: web,    dependency: web-01,   kind: runs_on}
+  - {dependent: web,    dependency: web-02,   kind: runs_on}
+  - {dependent: api,    dependency: api-01,   kind: runs_on}
+  - {dependent: db,     dependency: db-01,    kind: runs_on}
+  - {dependent: gw-01,  dependency: uplink-1, kind: routes_via}
+  - {dependent: gw-01,  dependency: uplink-2, kind: routes_via}

@@ -1,0 +1,7 @@
+GET /api/orders 200 in 23ms
+slow query took 512ms on replica
+cache lookup key=session:482913 hit
+commit 3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345 deployed
+upstream timeout calling db after 5000ms request_id=918273645
+worker pool resized from 8 to 12 threads
+TLS handshake completed with cipher TLS_AES_128_GCM_SHA256

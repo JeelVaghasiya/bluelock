@@ -1,0 +1,106 @@
+{
+  "incident": "inc-0412",
+  "priority": "P2",
+  "root_cause": "link:4714195e0a1a",
+  "affected": [
+    "svc:1d3a59c03421",
+    "h:9e187529af08"
+  ],
+  "signals": [
+    {
+      "src": "link:4714195e0a1a",
+      "metric": "rtt",
+      "stat": "p95",
+      "value": 184,
+      "baseline": 22,
+      "z": 7.4,
+      "weight": 0.61,
+      "layer": "L1",
+      "onset_ts": "2026-11-21T04:12:00Z"
+    },
+    {
+      "src": "svc:1d3a59c03421",
+      "metric": "error_rate",
+      "stat": "avg",
+      "value": 0.09,
+      "baseline": 0.004,
+      "z": 4.8,
+      "weight": 0.39,
+      "layer": "L1",
+      "onset_ts": "2026-11-21T04:13:34Z"
+    }
+  ],
+  "layers_agreeing": [
+    "L1",
+    "L2",
+    "L3"
+  ],
+  "persistence": 1.0,
+  "rule": "upstream_link_degradation",
+  "confidence": 0.87,
+  "confidence_parts": {
+    "magnitude": 0.46,
+    "agreement": 0.3,
+    "persistence": 0.2
+  },
+  "action": {
+    "key": "failover_uplink",
+    "text": "Check link link\u00b73fa1 or fail over to the secondary uplink",
+    "reversible": true,
+    "rollback_key": "failback_uplink",
+    "requires_role": "tenant-admin"
+  },
+  "why": "Link link\u00b73fa1 rtt p95 rose 94 s before 2 dependent components degraded",
+  "trace": [
+    {
+      "step": "detect",
+      "layer": "L1",
+      "detail": "z=7.4 in 3/3 windows"
+    },
+    {
+      "step": "corroborate",
+      "layer": "L2",
+      "detail": "HST score 0.93 > p99 0.81"
+    },
+    {
+      "step": "correlate",
+      "detail": "graph distance <=2 within +/-120 s",
+      "members": 3
+    },
+    {
+      "step": "root_cause",
+      "chosen": "link:4714195e0a1a",
+      "rejected": [
+        {
+          "src": "svc:1d3a59c03421",
+          "why": "depends on link; onset +94 s"
+        }
+      ]
+    },
+    {
+      "step": "playbook",
+      "rule": "upstream_link_degradation",
+      "matched": [
+        "root_kind=link",
+        "root_metric=rtt",
+        "impacted=error_rate"
+      ]
+    },
+    {
+      "step": "policy",
+      "detail": "reversible, blast radius 3 <= 6, requires tenant-admin"
+    }
+  ],
+  "suppressed": [
+    {
+      "alert_id": "a-7",
+      "src": "h:9e187529af08",
+      "metric": "rtt",
+      "reason": "absorbed into inc-0412"
+    }
+  ],
+  "noise": {
+    "raw_alerts": 7,
+    "incidents": 1
+  }
+}

@@ -1,0 +1,31 @@
+# Collector behaviour (Tier 1). The hash of this file is reported in every heartbeat
+# as config_hash, so the fleet view can flag config drift.
+window_s: 5
+grace_s: 0.5
+late_horizon_s: 120
+batch_ms: 1000
+max_records_per_payload: 500
+heartbeat_s: 5
+retention:
+  raw_days: 7
+  egress_days: 30
+outbox:
+  cap_mb: 500
+  compact_to_s: 60
+sender:
+  timeout_s: 5
+  backoff_max_s: 30
+  backlog_rate_per_s: 50
+  backlog_inflight: 4
+redaction:
+  entropy_threshold: 4.0
+  entropy_min_len: 20
+  ner: false
+security:
+  window_s: 60
+  brute_force_fails: 10
+  spray_distinct_users: 5
+  success_after_fails: 5
+fast_path:
+  consecutive_samples: 3
+actions_allowlist: [failover_uplink, failback_uplink, restart_service, block_source_ip, unblock_source_ip, scale_out, scale_in]

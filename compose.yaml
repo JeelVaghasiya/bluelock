@@ -1,0 +1,337 @@
+# TrustLine - two tiers, two sites, two regions on one machine.
+#   lite  : COMPOSE_PROFILES=      (site acme -> ap-south only, ~1.5 GB)
+#   full  : COMPOSE_PROFILES=eu    (adds site globex -> eu-west, ~2.5 GB)
+# Site networks are internal: raw data physically cannot leave a site except via
+# the collector -> nginx mTLS door (hop H2) on the `wan` network.
+# NOTE: no `env_file:` anywhere - each service gets only the variables it needs, so
+# SaaS containers never see the Tier-1 HMAC keys.
+name: trustline
+
+x-py: &py
+  restart: unless-stopped
+  init: true
+
+x-tsdb: &tsdb
+  image: timescale/timescaledb:2.32.1-pg16
+  restart: unless-stopped
+  mem_limit: 384m
+  command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=50", "-c", "work_mem=4MB", "-c", "timescaledb.telemetry_level=off"]
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U tl_owner -d trustline"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+
+x-tsdb-env: &tsdb-env
+  POSTGRES_DB: trustline
+  POSTGRES_USER: tl_owner
+  POSTGRES_PASSWORD: ${PG_OWNER_PASSWORD}
+  PG_INGEST_PASSWORD: ${PG_INGEST_PASSWORD}
+  PG_WORKER_PASSWORD: ${PG_WORKER_PASSWORD}
+  PG_API_PASSWORD: ${PG_API_PASSWORD}
+  TS_TUNE_MEMORY: 384MB
+  TS_TUNE_NUM_CPUS: "2"
+  TIMESCALEDB_TELEMETRY: "off"
+
+x-nats-env: &nats-env
+  NATS_INGEST_PASSWORD: ${NATS_INGEST_PASSWORD}
+  NATS_WORKER_PASSWORD: ${NATS_WORKER_PASSWORD}
+  NATS_API_PASSWORD: ${NATS_API_PASSWORD}
+
+networks:
+  site-acme: {internal: true}
+  site-globex: {internal: true}
+  sim-ctl: {}
+  wan: {}
+  ap-core: {internal: true}
+  eu-core: {internal: true}
+  global: {}
+
+volumes:
+  tsdb-ap: {}
+  tsdb-eu: {}
+  nats-ap: {}
+  nats-eu: {}
+  col-acme: {}
+  col-globex: {}
+  control-data: {}
+  sim-data: {}
+
+services:
+  # ======================= Tier 1: sites =======================
+  simulator:
+    <<: *py
+    build: {context: ., dockerfile: simulator/Dockerfile}
+    environment:
+      SITES: ${SIM_SITES:-acme=http://collector-acme:8081}
+      SYSLOG_TARGETS: ${SIM_SYSLOG:-acme=collector-acme:5514}
+      SIM_SEED: "42"
+      PREWARM_MINUTES: ${PREWARM_MINUTES:-0}
+    volumes: ["sim-data:/data"]
+    networks: [site-acme, site-globex, sim-ctl]
+    ports: ["127.0.0.1:8090:8090"]
+    mem_limit: 192m
+
+  collector-acme:
+    <<: *py
+    build: {context: ., dockerfile: collector/Dockerfile, args: {WITH_NER: "${WITH_NER:-0}"}}
+    environment:
+      SITE: acme
+      COLLECTOR_ID: col-ac01
+      REGION: ap-south
+      SRC_TZ: "+05:30"
+      INGEST_BASE: https://nginx-ap:8443
+      CONTROL_URL: https://control:8444
+      SIMULATOR_URL: http://simulator:8090
+      ENROL_MODE: ${ENROL_MODE:-preissued}
+      ENROL_TOKEN: ${ENROL_TOKEN_ACME}
+      HMAC_KEY: ${HMAC_KEY_ACME}
+      ORGANISER_MODE: ${ORGANISER_MODE:-off}
+      ORGANISER_URL: ${ORGANISER_URL:-}
+      ORGANISER_TOKEN: ${ORGANISER_TOKEN:-}
+      WINDOW_SECONDS: ${WINDOW_SECONDS:-5}
+      BATCH_INTERVAL_MS: ${BATCH_INTERVAL_MS:-1000}
+      HEARTBEAT_SECONDS: ${HEARTBEAT_SECONDS:-5}
+      WARMUP_SECONDS: ${WARMUP_SECONDS:-300}
+    volumes:
+      - col-acme:/data
+      - ./config/collector.yaml:/config/collector.yaml:ro
+      - ./config/thresholds.yaml:/config/thresholds.yaml:ro
+      - ./config/organiser_mapping.yaml:/config/organiser_mapping.yaml:ro
+      - ./config/sites/acme:/config/site:ro
+      - ./deploy/certs/out/ca.crt:/certs/ca.crt:ro
+      - ./deploy/certs/out/collectors/col-ac01:/certs/client:ro
+    networks: [site-acme, wan]
+    ports: ["127.0.0.1:9090:9090"]
+    mem_limit: 384m
+
+  collector-globex:
+    <<: *py
+    profiles: [eu]
+    build: {context: ., dockerfile: collector/Dockerfile, args: {WITH_NER: "${WITH_NER:-0}"}}
+    environment:
+      SITE: globex
+      COLLECTOR_ID: col-9b01
+      REGION: eu-west
+      SRC_TZ: "+01:00"
+      INGEST_BASE: https://nginx-eu:8443
+      CONTROL_URL: https://control:8444
+      SIMULATOR_URL: http://simulator:8090
+      ENROL_MODE: ${ENROL_MODE:-preissued}
+      ENROL_TOKEN: ${ENROL_TOKEN_GLOBEX}
+      HMAC_KEY: ${HMAC_KEY_GLOBEX}
+      ORGANISER_MODE: ${ORGANISER_MODE:-off}
+      ORGANISER_URL: ${ORGANISER_URL:-}
+      ORGANISER_TOKEN: ${ORGANISER_TOKEN:-}
+      WINDOW_SECONDS: ${WINDOW_SECONDS:-5}
+      BATCH_INTERVAL_MS: ${BATCH_INTERVAL_MS:-1000}
+      HEARTBEAT_SECONDS: ${HEARTBEAT_SECONDS:-5}
+      WARMUP_SECONDS: ${WARMUP_SECONDS:-300}
+    volumes:
+      - col-globex:/data
+      - ./config/collector.yaml:/config/collector.yaml:ro
+      - ./config/thresholds.yaml:/config/thresholds.yaml:ro
+      - ./config/organiser_mapping.yaml:/config/organiser_mapping.yaml:ro
+      - ./config/sites/globex:/config/site:ro
+      - ./deploy/certs/out/ca.crt:/certs/ca.crt:ro
+      - ./deploy/certs/out/collectors/col-9b01:/certs/client:ro
+    networks: [site-globex, wan]
+    ports: ["127.0.0.1:9091:9090"]
+    mem_limit: 384m
+
+  # ======================= Tier 2: region ap-south =======================
+  nginx-ap:
+    image: nginx:1.30.7-alpine
+    restart: unless-stopped
+    environment: {TL_REGION: ap-south, TL_SERVER_NAME: nginx-ap, TL_UPSTREAM: "ingest-ap:8000"}
+    volumes:
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - ./deploy/certs/out/servers/nginx-ap:/etc/nginx/certs/server:ro
+      - ./deploy/certs/out/ca.crt:/etc/nginx/certs/ca.crt:ro
+    networks: [wan, ap-core]
+    ports: ["127.0.0.1:8443:8443"]
+    mem_limit: 32m
+
+  ingest-ap:
+    <<: *py
+    build: {context: ., dockerfile: saas/ingest/Dockerfile}
+    environment:
+      REGION: ap-south
+      NATS_URL: nats://ingest:${NATS_INGEST_PASSWORD}@nats-ap:4222
+      DATABASE_URL: postgresql://tl_ingest:${PG_INGEST_PASSWORD}@tsdb-ap:5432/trustline
+      CONTROL_INTERNAL: http://control:8000
+    networks: [ap-core]
+    depends_on: {tsdb-ap: {condition: service_healthy}, nats-ap: {condition: service_started}}
+    mem_limit: 160m
+
+  nats-ap:
+    image: nats:2.15.3-alpine
+    restart: unless-stopped
+    command: ["-c", "/etc/nats/nats.conf"]
+    environment: *nats-env
+    volumes: ["./deploy/nats/nats.conf:/etc/nats/nats.conf:ro", "nats-ap:/data"]
+    networks: [ap-core]
+    mem_limit: 128m
+
+  tsdb-ap:
+    <<: *tsdb
+    environment: *tsdb-env
+    volumes:
+      - tsdb-ap:/var/lib/postgresql/data
+      - ./deploy/db/init/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+      - ./deploy/db/init/20-schema.sql:/docker-entrypoint-initdb.d/20-schema.sql:ro
+      - ./deploy/db/init/30-rls.sql:/docker-entrypoint-initdb.d/30-rls.sql:ro
+    networks: [ap-core]
+
+  workers-ap:
+    <<: *py
+    build: {context: ., dockerfile: saas/workers/Dockerfile}
+    environment:
+      REGION: ap-south
+      NATS_URL: nats://worker:${NATS_WORKER_PASSWORD}@nats-ap:4222
+      DATABASE_URL: postgresql://tl_worker:${PG_WORKER_PASSWORD}@tsdb-ap:5432/trustline
+      CONFIG_DIR: /config
+      STALE_AFTER_SECONDS: ${STALE_AFTER_SECONDS:-30}
+      OFFLINE_TIMEOUT_SECONDS: ${OFFLINE_TIMEOUT_SECONDS:-45}
+      WARMUP_SECONDS: ${WARMUP_SECONDS:-300}
+    volumes:
+      - ./config/thresholds.yaml:/config/thresholds.yaml:ro
+      - ./config/playbook.yaml:/config/playbook.yaml:ro
+      - ./config/tenants.yaml:/config/tenants.yaml:ro
+    networks: [ap-core]
+    depends_on: {tsdb-ap: {condition: service_healthy}, ingest-ap: {condition: service_started}}
+    mem_limit: 512m
+
+  # ======================= Tier 2: region eu-west =======================
+  nginx-eu:
+    image: nginx:1.30.7-alpine
+    restart: unless-stopped
+    profiles: [eu]
+    environment: {TL_REGION: eu-west, TL_SERVER_NAME: nginx-eu, TL_UPSTREAM: "ingest-eu:8000"}
+    volumes:
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - ./deploy/certs/out/servers/nginx-eu:/etc/nginx/certs/server:ro
+      - ./deploy/certs/out/ca.crt:/etc/nginx/certs/ca.crt:ro
+    networks: [wan, eu-core]
+    ports: ["127.0.0.1:8543:8443"]
+    mem_limit: 32m
+
+  ingest-eu:
+    <<: *py
+    profiles: [eu]
+    build: {context: ., dockerfile: saas/ingest/Dockerfile}
+    environment:
+      REGION: eu-west
+      NATS_URL: nats://ingest:${NATS_INGEST_PASSWORD}@nats-eu:4222
+      DATABASE_URL: postgresql://tl_ingest:${PG_INGEST_PASSWORD}@tsdb-eu:5432/trustline
+      CONTROL_INTERNAL: http://control:8000
+    networks: [eu-core]
+    depends_on: {tsdb-eu: {condition: service_healthy}, nats-eu: {condition: service_started}}
+    mem_limit: 160m
+
+  nats-eu:
+    image: nats:2.15.3-alpine
+    restart: unless-stopped
+    profiles: [eu]
+    command: ["-c", "/etc/nats/nats.conf"]
+    environment: *nats-env
+    volumes: ["./deploy/nats/nats.conf:/etc/nats/nats.conf:ro", "nats-eu:/data"]
+    networks: [eu-core]
+    mem_limit: 128m
+
+  tsdb-eu:
+    <<: *tsdb
+    profiles: [eu]
+    environment: *tsdb-env
+    volumes:
+      - tsdb-eu:/var/lib/postgresql/data
+      - ./deploy/db/init/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+      - ./deploy/db/init/20-schema.sql:/docker-entrypoint-initdb.d/20-schema.sql:ro
+      - ./deploy/db/init/30-rls.sql:/docker-entrypoint-initdb.d/30-rls.sql:ro
+    networks: [eu-core]
+
+  workers-eu:
+    <<: *py
+    profiles: [eu]
+    build: {context: ., dockerfile: saas/workers/Dockerfile}
+    environment:
+      REGION: eu-west
+      NATS_URL: nats://worker:${NATS_WORKER_PASSWORD}@nats-eu:4222
+      DATABASE_URL: postgresql://tl_worker:${PG_WORKER_PASSWORD}@tsdb-eu:5432/trustline
+      CONFIG_DIR: /config
+      STALE_AFTER_SECONDS: ${STALE_AFTER_SECONDS:-30}
+      OFFLINE_TIMEOUT_SECONDS: ${OFFLINE_TIMEOUT_SECONDS:-45}
+      WARMUP_SECONDS: ${WARMUP_SECONDS:-300}
+    volumes:
+      - ./config/thresholds.yaml:/config/thresholds.yaml:ro
+      - ./config/playbook.yaml:/config/playbook.yaml:ro
+      - ./config/tenants.yaml:/config/tenants.yaml:ro
+    networks: [eu-core]
+    depends_on: {tsdb-eu: {condition: service_healthy}, ingest-eu: {condition: service_started}}
+    mem_limit: 512m
+
+  # ======================= Tier 2: global =======================
+  control:
+    <<: *py
+    build: {context: ., dockerfile: saas/control/Dockerfile}
+    environment:
+      ENROL_TOKENS: "acme=${ENROL_TOKEN_ACME},globex=${ENROL_TOKEN_GLOBEX}"
+      TENANTS_FILE: /config/tenants.yaml
+    volumes:
+      - ./deploy/certs/out/ca:/ca:ro
+      - ./deploy/certs/out/servers/control:/tls:ro
+      - ./config/tenants.yaml:/config/tenants.yaml:ro
+      - control-data:/data
+    networks: [wan, global, ap-core, eu-core]
+    mem_limit: 160m
+
+  api:
+    <<: *py
+    build: {context: ., dockerfile: saas/api/Dockerfile}
+    environment:
+      DB_AP_URL: postgresql://tl_api:${PG_API_PASSWORD}@tsdb-ap:5432/trustline
+      DB_EU_URL: postgresql://tl_api:${PG_API_PASSWORD}@tsdb-eu:5432/trustline
+      NATS_AP_URL: nats://api:${NATS_API_PASSWORD}@nats-ap:4222
+      NATS_EU_URL: nats://api:${NATS_API_PASSWORD}@nats-eu:4222
+      JWT_SECRET: ${JWT_SECRET}
+      USERS_FILE: /config/users.yaml
+      TENANTS_FILE: /config/tenants.yaml
+      CONFIG_DIR: /config
+      SIMULATOR_URL: http://simulator:8090
+    volumes:
+      - ./config/users.yaml:/config/users.yaml:ro
+      - ./config/tenants.yaml:/config/tenants.yaml:ro
+      - ./config/thresholds.yaml:/config/thresholds.yaml:ro
+      - ./config/playbook.yaml:/config/playbook.yaml:ro
+    networks: [global, ap-core, eu-core, sim-ctl]
+    depends_on: {tsdb-ap: {condition: service_healthy}}
+    ports: ["127.0.0.1:8000:8000"]
+    mem_limit: 256m
+
+  dashboard:
+    build: {context: ./dashboard}
+    restart: unless-stopped
+    networks: [global]
+    depends_on: [api]
+    ports: ["127.0.0.1:3000:80"]
+    mem_limit: 32m
+
+  # ======================= tools =======================
+  certgen:
+    profiles: [tools]
+    image: alpine:3.22
+    working_dir: /work
+    entrypoint: ["sh", "/work/deploy/certs/gen.sh"]
+    environment: {FORCE: "${FORCE:-0}"}
+    volumes: ["./deploy/certs:/work/deploy/certs"]
+
+  tester:
+    profiles: [tools]
+    build: {context: ., dockerfile: tests/Dockerfile}
+    environment:
+      DB_AP_ADMIN: postgresql://tl_owner:${PG_OWNER_PASSWORD}@tsdb-ap:5432/trustline
+      DB_EU_ADMIN: postgresql://tl_owner:${PG_OWNER_PASSWORD}@tsdb-eu:5432/trustline
+      DB_AP_API: postgresql://tl_api:${PG_API_PASSWORD}@tsdb-ap:5432/trustline
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+    volumes: ["./:/work:ro", "./deploy/certs/out:/certs:ro", "/var/run/docker.sock:/var/run/docker.sock"]
+    networks: [wan, global, sim-ctl, ap-core, eu-core]

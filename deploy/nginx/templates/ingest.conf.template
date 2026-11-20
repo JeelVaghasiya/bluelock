@@ -1,0 +1,38 @@
+# Hop H2 - the ONLY door across the trust boundary. Mutual TLS 1.3; the verified client
+# certificate subject is forwarded to ingest-api, overwriting anything the client sent.
+# The nginx image runs envsubst only for env vars that exist, so $ssl_* survive.
+log_format tl '$time_iso8601 "$ssl_client_s_dn" $ssl_client_verify $ssl_protocol $status $request_time $request_length';
+
+server {
+  listen 8443 ssl;
+  http2 on;
+  server_name ${TL_SERVER_NAME} localhost;
+  access_log /dev/stdout tl;
+  server_tokens off;
+
+  ssl_certificate     /etc/nginx/certs/server/server.crt;
+  ssl_certificate_key /etc/nginx/certs/server/server.key;
+  ssl_protocols TLSv1.3;
+  ssl_client_certificate /etc/nginx/certs/ca.crt;
+  ssl_verify_client on;
+  ssl_verify_depth 2;
+
+  client_max_body_size 5m;
+  resolver 127.0.0.11 valid=10s ipv6=off;
+  set $ingest http://${TL_UPSTREAM};
+
+  location ~ ^/v1/(ingest|actions|config)$ {
+    proxy_pass $ingest;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header X-Client-DN $ssl_client_s_dn;
+    proxy_set_header X-Client-Verify $ssl_client_verify;
+    proxy_set_header X-Client-Serial $ssl_client_serial;
+    proxy_set_header X-Client-Fingerprint $ssl_client_fingerprint;
+    proxy_set_header X-TL-Region ${TL_REGION};
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 10s;
+  }
+
+  location / { return 404; }
+}

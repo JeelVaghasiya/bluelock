@@ -1,0 +1,44 @@
+# Mapping from the organiser's shared telemetry stream to TrustLine's ParsedEvent fields.
+# Edit THIS file (not code) once the organiser publishes their spec.
+# Values are dotted paths into each organiser record.
+mode: ${ORGANISER_MODE}        # off|http_push|http_poll|sse|ws|udp|file
+url: ${ORGANISER_URL}
+token: ${ORGANISER_TOKEN}
+format: jsonl                  # jsonl|json_array|syslog|csv
+poll_interval_s: 1
+fields:
+  ts: timestamp
+  ts_format: auto              # auto|rfc3339|epoch_s|epoch_ms
+  site: tenant
+  host: host
+  kind: type                   # metric|probe|check|log|auth
+  metric: metric
+  value: value
+  unit: unit
+  message: message
+  level: level
+  app: app
+  link: link
+  rtt_ms: latency_ms
+  loss: packet_loss
+  service: service
+  ok: ok
+  user: user
+  src_ip: src_ip
+  outcome: outcome             # success|failure for auth events
+# organiser tenant/site value -> our site name
+site_map:
+  "tenant-1": acme
+  "tenant-2": globex
+# organiser metric names -> our MetricName
+metric_map:
+  cpu_percent: cpu
+  cpu: cpu
+  memory_percent: mem
+  mem: mem
+  disk_percent: disk
+  disk: disk
+  bandwidth_in: net_in
+  bandwidth_out: net_out
+  latency_ms: rtt
+  packet_loss: loss

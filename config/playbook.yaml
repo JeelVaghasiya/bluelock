@@ -1,0 +1,92 @@
+# Playbook: condition -> action -> rationale -> policy -> rollback.
+# Every sentence the UI shows for "why" and "what to do" comes from here, so each
+# recommendation traces to a rule and to the signals that matched it.
+rules:
+  - id: upstream_link_degradation
+    when: {root_kind: link, root_metrics_any: [rtt, loss, jitter, up], impacted_metrics_any: [error_rate, up, rtt]}
+    action:
+      key: failover_uplink
+      text: "Check link {root} or fail over to the secondary uplink"
+      reversible: true
+      rollback_key: failback_uplink
+      requires_role: tenant-admin
+      max_blast_radius: 6
+    why: "Link {root} {metric} rose {lead_s}s before {impacted_n} dependent component(s) degraded"
+
+  - id: link_down
+    when: {root_kind: link, root_metrics_any: [up, loss]}
+    action:
+      key: failover_uplink
+      text: "Link {root} is down - fail over to the secondary uplink"
+      reversible: true
+      rollback_key: failback_uplink
+      requires_role: tenant-admin
+      max_blast_radius: 6
+    why: "Probe success on {root} dropped to {value} while loss rose"
+
+  - id: memory_leak
+    when: {root_kind: host, root_metrics_any: [mem], trend: rising}
+    action:
+      key: restart_service
+      text: "Restart the leaking service on {root} during low traffic"
+      reversible: true
+      rollback_key: none
+      requires_role: tenant-admin
+      max_blast_radius: 3
+    why: "Memory on {root} has risen steadily for {duration_s}s and left its learned baseline (z={z})"
+
+  - id: cpu_saturation
+    when: {root_kind: host, root_metrics_any: [cpu]}
+    action:
+      key: scale_out
+      text: "Shift load away from {root} or add capacity"
+      reversible: true
+      rollback_key: scale_in
+      requires_role: tenant-admin
+      max_blast_radius: 4
+    why: "CPU p95 on {root} is {value}% against a baseline of {baseline}% (z={z})"
+
+  - id: disk_fill
+    when: {root_kind: host, root_metrics_any: [disk, disk_hours_to_full]}
+    action:
+      key: rotate_logs
+      text: "Rotate and compress logs on {root}; disk is projected full in {hours_to_full}h"
+      reversible: false
+      rollback_key: none
+      requires_role: tenant-admin
+      max_blast_radius: 1
+    why: "Disk usage on {root} is rising linearly"
+
+  - id: auth_attack
+    when: {categories_any: [auth]}
+    action:
+      key: block_source_ip
+      text: "Block source {root} at the gateway for 1 hour and force a password reset for targeted accounts"
+      reversible: true
+      rollback_key: unblock_source_ip
+      requires_role: tenant-admin
+      max_blast_radius: 1
+    why: "{fail_count} failed logins across {distinct_users} accounts from {root} in {window_s}s ({pattern})"
+
+  - id: service_errors
+    when: {root_kind: svc, root_metrics_any: [error_rate, up]}
+    action:
+      key: restart_service
+      text: "Restart service {root} and check its recent deploys"
+      reversible: true
+      rollback_key: none
+      requires_role: tenant-admin
+      max_blast_radius: 4
+    why: "Errors on {root} rose to {value} against a baseline of {baseline}, with no upstream cause found"
+
+  - id: generic_anomaly
+    when: {}
+    action:
+      key: investigate
+      text: "Investigate {root}: behaviour deviates from its learned baseline"
+      reversible: true
+      rollback_key: none
+      requires_role: tenant-viewer
+      max_blast_radius: 99
+      execute: false
+    why: "{layers} flagged {root} as unusual"

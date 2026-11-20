@@ -1,0 +1,81 @@
+{
+  "schema": "trustline.v1",
+  "payload_id": "01a1fc4d-f590-726b-b2a7-4de452e6b438",
+  "collector_id": "col-ac01",
+  "seq": 18234,
+  "region": "ap-south",
+  "sent_ts": "2026-11-21T04:12:10.004000Z",
+  "redactions": 1,
+  "redactions_by_rule": {
+    "github_token": 1
+  },
+  "records": [
+    {
+      "type": "metric",
+      "event_ts": "2026-11-21T04:12:00Z",
+      "collect_ts": "2026-11-21T04:12:05.500000Z",
+      "win_s": 5,
+      "rev": 0,
+      "n": 5,
+      "src_tz": "+05:30",
+      "src": "web-01.acme.internal",
+      "metric": "cpu",
+      "min": 43.243,
+      "avg": 46.917,
+      "p50": 47.379,
+      "p95": 48.483,
+      "max": 48.483,
+      "unit": "%"
+    },
+    {
+      "type": "finding",
+      "finding_id": "6f03675a-1600-435a-8999-50d836f675cc",
+      "event_ts": "2026-11-21T04:12:05Z",
+      "breach_ts": "2026-11-21T04:12:02Z",
+      "collect_ts": "2026-11-21T04:12:05.300000Z",
+      "src_tz": "+05:30",
+      "src": "ip:0aea33285ebd",
+      "category": "auth",
+      "pattern": "spray",
+      "severity": "high",
+      "risk": 0.92,
+      "layer": "L0",
+      "fail_count": 37,
+      "distinct_users": 14,
+      "window_s": 60
+    },
+    {
+      "type": "event",
+      "event_ts": "2026-11-21T04:12:00Z",
+      "collect_ts": "2026-11-21T04:12:05.500000Z",
+      "win_s": 5,
+      "src_tz": "+05:30",
+      "src": "svc:1d3a59c03421",
+      "category": "app",
+      "level": "error",
+      "template_id": "5b1f0e2a9c44",
+      "template": "POST /login token=<secret:github_token> user <u:03a572eb349c>",
+      "count": 1,
+      "redacted": 1
+    },
+    {
+      "type": "heartbeat",
+      "event_ts": "2026-11-21T04:12:10Z",
+      "src_tz": "+05:30",
+      "version": "0.3.1",
+      "config_hash": "a41c00ff119e",
+      "cpu": 3.1,
+      "mem_mb": 182.0,
+      "buffer_depth": 0,
+      "buffer_bytes": 0,
+      "last_acked_seq": 18233,
+      "last_assigned_seq": 18234,
+      "redactions_total": 1284,
+      "blocked_total": 2,
+      "dup_source_events": 0,
+      "late_beyond_horizon": 0,
+      "uptime_s": 3600,
+      "saas_reachable": true
+    }
+  ]
+}

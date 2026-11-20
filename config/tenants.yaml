@@ -1,0 +1,19 @@
+# Tenant registry (control plane). Holds NO telemetry - only home region and collectors.
+tenants:
+  acme:
+    name: Acme Corp
+    home_region: ap-south
+    collectors:
+      - {id: col-ac01, site: acme, src_tz: "+05:30"}
+  globex:
+    name: Globex Ltd
+    home_region: eu-west
+    collectors:
+      - {id: col-9b01, site: globex, src_tz: "+01:00"}
+
+regions:
+  ap-south: {ingest_base: "https://nginx-ap:8443", label: "Asia Pacific (Mumbai)"}
+  eu-west: {ingest_base: "https://nginx-eu:8443", label: "Europe (Frankfurt)"}
+
+# Serials added here (or via POST /internal/revoke) get 403 'revoked' at ingest.
+revoked_serials: []
