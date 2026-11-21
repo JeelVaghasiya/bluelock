@@ -320,6 +320,27 @@ function App() {
           </div>
         ))}
       </div>
+      {/* redundancy removed before anything leaves the site: what came in vs what had to be sent */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-line bg-panel px-4 py-1.5 text-[12px]">
+        <span className="font-semibold text-t2">Data reduction</span>
+        {[
+          ["samples accepted", c.samples_in],
+          ["duplicate deliveries", (c.dup_source_events ?? 0) + (c.dup_samples ?? 0)],
+          ["failed verification", c.dropped_invalid],
+          ["noise dropped", c.dropped_noise],
+          ["unchanged windows kept on site", c.suppressed_unchanged],
+          ["records sent", c.records_out],
+        ].map(([k, v]) => (
+          <span key={String(k)} className="text-t3">
+            {k} <b className="tnum text-t1">{n0(Number(v ?? 0))}</b>
+          </span>
+        ))}
+        {Number(c.records_out) > 0 && (
+          <span className="ml-auto font-semibold text-excellent">
+            {(Number(c.raw_in ?? 0) / Number(c.records_out)).toFixed(1)}× fewer records than raw input
+          </span>
+        )}
+      </div>
       <main className="min-h-0 flex-1 overflow-y-auto bg-bg p-4">
         {tab === "proof" && <Proof />}
         {tab === "raw" && <RawVault />}

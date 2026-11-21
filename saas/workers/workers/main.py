@@ -575,7 +575,8 @@ class Workers:
 
 
 def _kind(src: str) -> str:
-    return {"h": "host", "svc": "svc", "link": "link", "ip": "ip", "u": "user"}.get(src.split(":", 1)[0], "other")
+    return {"h": "host", "svc": "svc", "link": "link", "dev": "device", "ip": "ip", "u": "user"}.get(
+        src.split(":", 1)[0], "other")
 
 
 def _uuid(s: str):

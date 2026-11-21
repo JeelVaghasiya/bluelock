@@ -48,9 +48,10 @@ def topology_record(s: Settings, pseudo: Pseudonymizer) -> dict | None:
     nodes = topo.get("nodes") or []
     if not nodes:
         return None
-    prefix = {"host": "h", "svc": "svc", "link": "link"}
+    prefix = {"host": "h", "svc": "svc", "link": "link", "device": "dev"}
     kinds = {n["name"]: n.get("kind", "host") for n in nodes}
-    roles = {"web", "api", "db", "gateway", "uplink", "worker", "other"}
+    roles = {"web", "api", "db", "gateway", "uplink", "worker", "other", "compute", "storage", "network", "cache",
+             "queue"}
 
     def code(name: str) -> str:
         return pseudo.code(prefix.get(kinds.get(name, "host"), "h"), name)

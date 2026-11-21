@@ -13,6 +13,12 @@ CATALOGUE: dict[str, tuple[str | None, float, int, str]] = {
     "packet_loss": ("link", 6.0, 300, "link loss +magnitude %"),
     "link_down": ("link", 1.0, 120, "link probes fail; dependent services error"),
     "service_errors": ("svc", 0.10, 300, "service error rate +magnitude"),
+    # wider estate (large profile)
+    "storage_latency": ("device", 12.0, 300, "storage I/O latency x magnitude; databases and apps on it slow down"),
+    "nic_errors": ("device", 40.0, 240, "interface errors/s on a network device; services behind it error"),
+    "repl_lag": ("svc", 4000.0, 300, "database replication lag climbs towards magnitude ms"),
+    "cache_miss_storm": ("svc", 0.45, 240, "cache hit ratio falls by magnitude; misses fall through to the database"),
+    "queue_backlog": ("svc", 0.6, 300, "queue consumers lose magnitude of their capacity; depth and lag grow"),
     "login_spray": (None, 1.0, 40, "one attacker IP tries many usernames (1/s)"),
     "brute_force": (None, 2.0, 30, "one attacker IP hammers one account (magnitude/s)"),
     "login_flood": (None, 150.0, 45, "botnet: magnitude failed logins/s spread over 64 IPs and many accounts"),
@@ -23,7 +29,9 @@ CATALOGUE: dict[str, tuple[str | None, float, int, str]] = {
     "clock_skew": (None, 8.0, 120, "source timestamps run magnitude seconds fast"),
 }
 
-DEFAULT_TARGETS = {"host": "api-01", "link": "uplink-1", "svc": "api"}
+DEFAULT_TARGETS = {"host": "api-01", "link": "uplink-1", "svc": "api", "device": "san-01"}
+# faults whose natural target differs from the type's default
+KIND_TARGETS = {"nic_errors": "core-sw-01", "repl_lag": "db", "cache_miss_storm": "cache", "queue_backlog": "queue"}
 
 
 @dataclass

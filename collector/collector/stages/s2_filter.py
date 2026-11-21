@@ -1,12 +1,19 @@
-"""Stage 2 - Filter: parse each source format into fields, drop noise, de-duplicate.
+"""Stage 2 - Filter: parse each source format into fields, verify, drop noise, de-duplicate.
 
 Parsers: simulator/organiser JSON (metric, probe, check, log, auth) and sshd/PAM syslog.
-Source-level dedupe: a 10-minute TTL set keyed on eid, else sha1(source|body).
+Redundancy removed here (the rest happens in stage 4 aggregation):
+  * source dedupe  - a 10-minute TTL set keyed on eid, else sha1(source|body): re-sent deliveries;
+  * sample dedupe  - the same reading (entity, metric, timestamp, value) arriving under another event id,
+                     e.g. a host scraped by two agents: counted once;
+  * noise          - debug logs and health-check access lines.
+Verification: every sample must be finite, inside its unit's physical range (% 0-100, ratio 0-1, rates
+and counts >= 0) and not stamped more than 5 min in the future; failures are dropped and counted by reason.
 """
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
 import re
 import time
 from collections import OrderedDict
@@ -14,10 +21,27 @@ from datetime import datetime, timedelta, timezone
 
 from ..models import Counters, ParsedEvent, RawEvent
 
-ALLOWED_METRICS = {"cpu", "mem", "disk", "net_in", "net_out", "net_util", "rtt", "jitter", "loss", "up",
-                   "error_rate"}
-UNITS = {"cpu": "%", "mem": "%", "disk": "%", "net_in": "B/s", "net_out": "B/s", "net_util": "%",
-         "rtt": "ms", "jitter": "ms", "loss": "%", "up": "ratio", "error_rate": "ratio"}
+# the collector's own unit table is authoritative (a source cannot relabel a metric's unit)
+UNITS = {
+    # compute
+    "cpu": "%", "mem": "%", "disk": "%", "net_in": "B/s", "net_out": "B/s", "net_util": "%", "load": "ratio",
+    # network
+    "rtt": "ms", "jitter": "ms", "loss": "%", "if_errors": "ops/s", "drops": "ops/s", "sessions": "count",
+    # web apps / services
+    "up": "ratio", "error_rate": "ratio", "req_rate": "ops/s", "apdex": "ratio",
+    # databases
+    "db_conns": "count", "qps": "ops/s", "query_ms": "ms", "repl_lag": "ms", "cache_hit": "ratio",
+    # other applications
+    "evictions": "ops/s", "queue_depth": "count", "consumer_lag": "ms",
+    # storage
+    "iops": "ops/s", "io_latency": "ms", "io_bytes": "B/s", "capacity": "%",
+}
+ALLOWED_METRICS = set(UNITS)
+# physical range per unit; "load" (per-core load average) may exceed 1
+RANGE = {"%": (0.0, 100.0), "ratio": (0.0, 1.0), "ms": (0.0, 3.6e6), "B/s": (0.0, 1e12), "ops/s": (0.0, 1e9),
+         "count": (0.0, 1e9)}
+RANGE_OVERRIDE = {"load": (0.0, 1000.0)}
+FUTURE_S = 300  # a sample stamped further ahead than this is a broken clock, not data
 
 SYSLOG = re.compile(r"^<(\d+)>(\w{3})\s+(\d{1,2}) (\d\d:\d\d:\d\d) (\S+) ([\w./-]+)(?:\[(\d+)\])?: (.*)$")
 SSH_FAIL = re.compile(r"Failed (?:password|publickey) for (invalid user )?(\S+) from (\S+) port \d+")
@@ -66,7 +90,34 @@ class Filter:
     def __init__(self, in_q: asyncio.Queue, out_q: asyncio.Queue, counters: Counters, src_tz: str):
         self.in_q, self.out_q, self.c = in_q, out_q, counters
         self.dedupe = TTLSet()
+        self.sample_seen = TTLSet(ttl=180, max_items=500_000)  # covers the 120 s late horizon
         self.tz = tz_offset(src_tz)
+
+    # ------------------------------------------------------------- verification + sample dedupe
+    def invalid(self, p: ParsedEvent) -> str | None:
+        v = p.value
+        if v is None or not math.isfinite(v):
+            return "non_finite"
+        lo, hi = RANGE_OVERRIDE.get(p.metric or "", RANGE.get(p.unit or "", (-math.inf, math.inf)))
+        if v < lo - 1e-9:
+            return "negative" if lo == 0 else "below_range"
+        if v > hi + 1e-9:
+            return "above_range"
+        if p.event_ts - p.collect_ts > FUTURE_S:
+            return "future_ts"
+        return None
+
+    def keep_sample(self, p: ParsedEvent, now: float) -> bool:
+        why = self.invalid(p)
+        if why:
+            self.c.dropped_invalid += 1
+            self.c.invalid_by_reason[why] = self.c.invalid_by_reason.get(why, 0) + 1
+            return False
+        if self.sample_seen.seen(f"{p.entity_prefix}|{p.entity}|{p.metric}|{p.event_ts:.3f}|{p.value!r}", now):
+            self.c.dup_samples += 1
+            return False
+        self.c.samples_in += 1
+        return True
 
     # ------------------------------------------------------------- parsers
     def parse_json(self, ev: RawEvent) -> list[ParsedEvent]:
@@ -81,6 +132,9 @@ class Filter:
                 return []
             if d.get("service"):
                 return [ParsedEvent(kind="sample", entity_prefix="svc", entity=d["service"], metric=name,
+                                    value=float(d["value"]), unit=UNITS[name], **base)]
+            if d.get("device"):  # storage arrays, switches, firewalls, load balancers
+                return [ParsedEvent(kind="sample", entity_prefix="dev", entity=d["device"], metric=name,
                                     value=float(d["value"]), unit=UNITS[name], **base)]
             return [ParsedEvent(kind="sample", entity_prefix="h", entity=d.get("host", "unknown"), metric=name,
                                 value=float(d["value"]), unit=UNITS[name], **base)]
@@ -168,6 +222,9 @@ class Filter:
             except Exception:
                 self.c.dropped_unknown += 1
                 continue
+            now = time.time()
             for p in parsed:
+                if p.kind == "sample" and not self.keep_sample(p, now):
+                    continue
                 self.c.parsed += 1
                 await self.out_q.put(p)

@@ -47,7 +47,7 @@ async def amain() -> None:
     stores = open_stores(s.data_dir)
     c = Counters()
 
-    topo_kinds = {"host": "h", "link": "link"}
+    topo_kinds = {"host": "h", "link": "link", "device": "dev"}
     known = {n["name"]: topo_kinds[n.get("kind")] for n in (s.topology.get("nodes") or [])
              if n.get("kind") in topo_kinds}
     pseudo = Pseudonymizer(s.hmac_key, known, on_new=stores.state.remember_code)

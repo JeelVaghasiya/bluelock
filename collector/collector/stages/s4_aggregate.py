@@ -6,6 +6,11 @@
 * windows close on wall clock (end + grace) so a stalled stream still flushes;
 * samples arriving late (<= late_horizon) re-open the window and re-emit it with rev+1;
   later ones are counted in late_beyond_horizon (the raw copy stays in raw.db).
+* unchanged-series suppression: a window whose min/avg/max all sit within the unit's dead-band of the
+  LAST WINDOW SENT for that series (a flat 'up' = 1, static device memory, a near-full-forever disk
+  forecast...) is not sent again; a keep-alive goes out at least every KEEPALIVE_S (below the SaaS 30 s
+  staleness limit) and any real change goes out at once. Noisy series are never suppressed, so no
+  information is lost - only repetition.
 """
 from __future__ import annotations
 
@@ -20,6 +25,8 @@ import numpy as np
 from ..models import CleanEvent, Counters
 
 LEVEL_RANK = {"info": 0, "warn": 1, "error": 2, "critical": 3}
+KEEPALIVE_S = 25
+DEADBAND = {"%": 0.05, "ratio": 0.0005, "ms": 0.01, "h": 0.5, "count": 0.0, "ops/s": 0.0, "B/s": 0.0}
 
 
 def iso(ts: float) -> str:
@@ -42,6 +49,18 @@ class WindowAggregator:
         self.revs: dict[tuple[float, tuple[str, str]], int] = {}
         self.dirty: set[tuple[float, tuple[str, str]]] = set()
         self.disk_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=24))
+        self.last_sent: dict[tuple[str, str], tuple[float, float, float, float]] = {}  # start, min, avg, max
+
+    def unchanged(self, rec: dict, start: float) -> bool:
+        """True if this window repeats the last one sent for its series (within the unit's dead-band)."""
+        k = (rec["src"], rec["metric"])
+        prev = self.last_sent.get(k)
+        tol = DEADBAND.get(rec["unit"], 0.0)
+        if prev and start - prev[0] < KEEPALIVE_S and abs(rec["min"] - prev[1]) <= tol \
+                and abs(rec["avg"] - prev[2]) <= tol and abs(rec["max"] - prev[3]) <= tol:
+            return True
+        self.last_sent[k] = (start, rec["min"], rec["avg"], rec["max"])
+        return False
 
     def start_of(self, ts: float) -> float:
         return math.floor(ts / self.win) * self.win
@@ -119,7 +138,12 @@ class WindowAggregator:
             if now >= start + self.win + self.grace:
                 keys = self.open.pop(start)
                 for key, vals in keys.items():
-                    out.extend(self._metric(start, key, vals, 0, now))
+                    for rec in self._metric(start, key, vals, 0, now):
+                        self.c.windows_out += 1
+                        if self.unchanged(rec, start):
+                            self.c.suppressed_unchanged += 1
+                        else:
+                            out.append(rec)
                 self.closed[start] = {k: list(v) for k, v in keys.items()}
         for start in sorted(list(self.events)):
             if now >= start + self.win + self.grace:

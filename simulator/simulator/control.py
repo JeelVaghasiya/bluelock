@@ -33,6 +33,11 @@ META: dict[str, tuple[str, str, str]] = {
     "packet_loss": ("Network", "Packet loss", "Loss bursts on the link; link health drops to Fair/Poor."),
     "link_down": ("Network", "Link down", "Probes fail, dependent services error immediately; P1/P2 incident rooted at the link."),
     "service_errors": ("Application", "Service errors", "Service error rate jumps; service turns Poor; error-rate anomaly with evidence."),
+    "storage_latency": ("Storage", "Storage latency", "The SAN's I/O latency jumps: database query time and app latency follow. ONE incident rooted at the storage array, not the database. Fix: failover_device."),
+    "nic_errors": ("Network", "Switch interface errors", "A core switch logs errors and drops; every service routed through it errors. Root cause = the switch. Fix: failover_device."),
+    "repl_lag": ("Database", "Replication lag", "Database replica falls seconds behind; replication-lag anomaly on the db service. Fix: restart_service."),
+    "cache_miss_storm": ("Application", "Cache miss storm", "Cache hit ratio collapses, evictions spike and the misses fall through: database QPS and query time rise."),
+    "queue_backlog": ("Application", "Queue backlog", "Consumers slow down: queue depth and consumer lag climb steadily. Fix: scale_out."),
     "login_spray": ("Security", "Password spray", "One IP tries many usernames: L0 'spray' finding at the edge, P2 security incident. Fix: block_source_ip."),
     "brute_force": ("Security", "Brute force", "One IP hammers root: 'brute force' finding."),
     "login_flood": ("Security", "Login flood (>100/s)", "150 failed logins/s from 64 bot IPs. The collector aggregates them into ONE 'login flood' finding (per-IP alerts suppressed); the SaaS correlates everything into ONE incident within 15 s. Fix: enable_auth_rate_limit (reversible)."),
@@ -42,6 +47,7 @@ META: dict[str, tuple[str, str, str]] = {
     "out_of_order": ("Delivery", "Out-of-order", "Records arrive 2-8 s late and shuffled: windows are revised (late_revisions), nothing is lost."),
     "clock_skew": ("Delivery", "Clock skew", "Device clocks run fast: the collector measures the skew; heartbeats report it."),
 }
+ESTATE_FAULTS = {"storage_latency", "nic_errors", "repl_lag", "cache_miss_storm", "queue_backlog"}
 EXTRA = {  # collector-side knobs, shown alongside the simulator faults
     "leak_field": ("Privacy", "Developer leak bug", "The next record carries a raw field. The egress allow-list BLOCKS the whole payload; nothing leaves the site."),
     "outage": ("Delivery", "SaaS unreachable", "The collector cannot reach the SaaS: the buffer grows, then drains oldest-first with 0 loss and 0 duplicates."),
@@ -273,8 +279,11 @@ def build_router(runtimes: dict, stats: dict, taps: dict[str, Taps], do_inject: 
         site = next(iter(runtimes.values())).site
         items = []
         for kind, (ttype, mag, dur, what) in CATALOGUE.items():
+            if kind in ESTATE_FAULTS and not site.devices:
+                continue  # standard 5-host site has no storage/network devices or app tiers to break
             cat, title, expect = META.get(kind, ("Other", kind, what))
-            targets = {"host": list(site.hosts), "link": list(site.links), "svc": list(site.services)}.get(ttype or "", [])
+            targets = {"host": list(site.hosts), "link": list(site.links), "svc": list(site.services),
+                       "device": list(site.devices)}.get(ttype or "", [])
             if kind == "secret_in_log":
                 targets = [s[0] for s in SECRETS]
             items.append({"kind": kind, "source": "simulator", "category": cat, "title": title, "what": what, "expect": expect,

@@ -66,6 +66,13 @@ class Counters:
     dropped_noise: int = 0
     dropped_unknown: int = 0
     dup_source_events: int = 0
+    # data volume + redundancy accounting (what came in vs what had to leave)
+    samples_in: int = 0  # valid, unique metric samples accepted
+    dup_samples: int = 0  # same reading delivered again under a different event id (e.g. two agents)
+    dropped_invalid: int = 0  # failed verification (non-finite, out of physical range, future timestamp)
+    invalid_by_reason: dict[str, int] = field(default_factory=dict)
+    windows_out: int = 0  # metric window records produced by aggregation
+    suppressed_unchanged: int = 0  # windows identical to the last one sent (kept on site, keep-alive every 25 s)
     findings_aggregated: int = 0  # per-IP auth findings folded into a login_flood finding
     flood_ips: int = 0  # distinct attacking IPs in the last login_flood (stays on site)
     redactions_total: int = 0

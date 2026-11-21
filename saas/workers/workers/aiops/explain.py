@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from .correlate import Correlator, Incident, ts
 
-KIND = {"h": "host", "svc": "svc", "link": "link", "ip": "ip", "u": "user"}
+KIND = {"h": "host", "svc": "svc", "link": "link", "dev": "device", "ip": "ip", "u": "user"}
 STAT = {"cpu": "p95", "rtt": "p95", "up": "min", "disk": "max"}
 
 
@@ -173,6 +173,11 @@ def _title(rule: str, root: str | None, m) -> str:
         "auth_attack": f"Login attack ({(m.pattern or 'auth').replace('_', ' ')})",
         "login_flood": "Login flood (distributed, >100 failed logins/s)",
         "service_errors": "Service error spike",
+        "storage_degradation": "Storage latency",
+        "network_device_errors": "Network device errors",
+        "db_replication_lag": "Database replication lag",
+        "cache_degradation": "Cache hit ratio collapse",
+        "queue_backlog": "Queue backlog",
         "generic_anomaly": "Anomalous behaviour",
     }
     return f"{names.get(rule, rule)} on {short(root)}"

@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from .control import Taps, build_router
 
 from .engine import SiteRuntime
-from .faults import CATALOGUE, DEFAULT_TARGETS, Fault
+from .faults import CATALOGUE, DEFAULT_TARGETS, KIND_TARGETS, Fault
 from . import signals
 from .sites import PROFILES, SITES
 
@@ -150,7 +150,7 @@ def do_inject(site: str, kind: str, target: str | None = None, magnitude: float 
         raise HTTPException(400, "unknown kind; see /scenarios")
     rt = rt_for(site)
     ttype, mag, dur, _ = CATALOGUE[kind]
-    target = target or (DEFAULT_TARGETS.get(ttype) if ttype else None)
+    target = target or KIND_TARGETS.get(kind) or (DEFAULT_TARGETS.get(ttype) if ttype else None)
     now = time.time()
     fid = uuid.uuid4().hex[:8]
     duration = duration_s if duration_s is not None else dur

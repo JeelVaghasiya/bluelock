@@ -22,10 +22,17 @@ import numpy as np
 
 ADAPT_WINDOWS = 120  # 10 min of 5 s windows
 
+# smallest deviation that can count as a move (stops z exploding on near-constant series, e.g. 0 errors/s)
 UNIT_FLOOR = {"cpu": 1.0, "mem": 0.5, "disk": 0.5, "rtt": 1.0, "jitter": 0.5, "loss": 0.2, "up": 0.01,
-              "error_rate": 0.002, "net_in": 1e4, "net_out": 1e4, "net_util": 0.2}
+              "error_rate": 0.002, "net_in": 1e4, "net_out": 1e4, "net_util": 0.2,
+              "io_latency": 0.5, "query_ms": 2.0, "repl_lag": 50.0, "cache_hit": 0.01, "apdex": 0.01,
+              "queue_depth": 50.0, "consumer_lag": 250.0, "if_errors": 1.0, "drops": 2.0, "capacity": 0.5,
+              "load": 0.1}
 STAT = {"cpu": "p95", "rtt": "p95", "jitter": "avg", "loss": "avg", "up": "min", "error_rate": "avg",
-        "mem": "avg", "disk": "max", "net_in": "avg", "net_out": "avg", "net_util": "avg"}
+        "mem": "avg", "disk": "max", "net_in": "avg", "net_out": "avg", "net_util": "avg",
+        "io_latency": "p95", "query_ms": "p95", "repl_lag": "avg", "cache_hit": "avg", "apdex": "avg",
+        "queue_depth": "max", "consumer_lag": "avg", "if_errors": "avg", "drops": "avg", "capacity": "max",
+        "load": "p95"}
 
 
 @dataclass

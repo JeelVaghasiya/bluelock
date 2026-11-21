@@ -8,7 +8,28 @@ import { MetricChart } from "@/charts/MetricChart";
 import { PALETTE } from "@/charts/EChart";
 import { Panel, Pseudo, Skeleton, StateBadge } from "@/components/ui";
 
-const BY_KIND: Record<string, string[]> = { host: ["cpu", "mem", "disk"], svc: ["error_rate", "rtt", "up"], link: ["rtt", "loss", "jitter"] };
+const BY_KIND: Record<string, string[]> = {
+  host: ["cpu", "mem", "disk", "load"],
+  svc: ["error_rate", "rtt", "up"],
+  link: ["rtt", "loss", "jitter"],
+  device: ["net_util", "if_errors", "drops", "cpu"],
+};
+// what matters differs by what a component IS: a database is read by query time, a SAN by I/O latency
+const BY_ROLE: Record<string, Record<string, string[]>> = {
+  svc: {
+    db: ["query_ms", "qps", "db_conns", "repl_lag", "cache_hit", "error_rate"],
+    cache: ["cache_hit", "evictions", "req_rate", "error_rate"],
+    queue: ["queue_depth", "consumer_lag", "req_rate", "error_rate"],
+    web: ["req_rate", "apdex", "rtt", "error_rate"],
+    api: ["req_rate", "apdex", "rtt", "error_rate"],
+    other: ["req_rate", "apdex", "rtt", "error_rate"],
+    compute: ["req_rate", "error_rate", "up"],
+  },
+  device: {
+    storage: ["io_latency", "iops", "io_bytes", "queue_depth", "capacity"],
+    network: ["net_util", "if_errors", "drops", "sessions", "cpu"],
+  },
+};
 
 export default function Metrics() {
   const [params, setParams] = useSearchParams();
@@ -18,7 +39,7 @@ export default function Metrics() {
   const sel = params.get("src") ?? sources.find((s) => s.state === "poor")?.src ?? sources[0]?.src;
   const src = (data?.sources ?? []).find((s) => s.src === sel);
   if (!data) return <div className="p-4"><Skeleton h={500} /></div>;
-  const metrics = src ? BY_KIND[src.kind] ?? Object.keys(src.signals) : [];
+  const metrics = src ? BY_ROLE[src.kind]?.[src.role] ?? BY_KIND[src.kind] ?? Object.keys(src.signals) : [];
   return (
     <div className="mx-auto grid max-w-[1680px] grid-cols-[260px_1fr] gap-3 p-4">
       <Panel title="Components" pad={false} className="max-h-[calc(100vh-120px)]">

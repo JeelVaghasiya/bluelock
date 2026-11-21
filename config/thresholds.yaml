@@ -11,6 +11,23 @@ signals:
   loss:       {stat: avg, excellent: 0.5,  good: 1,    fair: 3,    unit: "%"}
   up:         {stat: min, excellent: 1.0,  good: 0.99, fair: 0.95, unit: ratio, lower_is_worse: true}
   error_rate: {stat: avg, excellent: 0.01, good: 0.02, fair: 0.05, unit: ratio}
+  # compute
+  load:       {stat: p95, excellent: 1.0,  good: 1.5,  fair: 2.0,  unit: ratio}
+  # web apps
+  apdex:      {stat: avg, excellent: 0.94, good: 0.85, fair: 0.7,  unit: ratio, lower_is_worse: true}
+  # databases
+  query_ms:   {stat: p95, excellent: 20,   good: 40,   fair: 80,   unit: ms}
+  repl_lag:   {stat: avg, excellent: 500,  good: 1000, fair: 3000, unit: ms}
+  cache_hit:  {stat: avg, excellent: 0.9,  good: 0.8,  fair: 0.6,  unit: ratio, lower_is_worse: true}
+  # other applications
+  queue_depth:  {stat: max, excellent: 500,  good: 2000,  fair: 10000, unit: count}
+  consumer_lag: {stat: avg, excellent: 2000, good: 10000, fair: 30000, unit: ms}
+  # storage
+  io_latency: {stat: p95, excellent: 6,    good: 10,   fair: 20,   unit: ms}
+  capacity:   {stat: max, excellent: 75,   good: 85,   fair: 95,   unit: "%"}
+  # network devices
+  if_errors:  {stat: avg, excellent: 1,    good: 5,    fair: 20,   unit: ops/s}
+  drops:      {stat: avg, excellent: 5,    good: 20,   fair: 50,   unit: ops/s}
 overrides:
   globex:
     cpu: {excellent: 50, good: 70, fair: 85}

@@ -1,5 +1,5 @@
 # Tier 1 ONLY - real names. The LARGE demo site (`native.py site --profile large`, SIM_PROFILE=large).
-# Roles use the trustline.v1 set (cache/search -> other, auth -> api, queue -> worker).
+# Compute, storage, web apps, databases, network devices and other applications (cache, queue, search).
 # Generated from simulator/simulator/sites.py::_large_acme - keep the two in step (test_lab checks it).
 nodes:
   - {name: web-01, kind: host, role: web}
@@ -14,13 +14,17 @@ nodes:
   - {name: api-04, kind: host, role: api}
   - {name: db-01, kind: host, role: db}
   - {name: db-02, kind: host, role: db}
-  - {name: cache-01, kind: host, role: other}
-  - {name: cache-02, kind: host, role: other}
+  - {name: cache-01, kind: host, role: cache}
+  - {name: cache-02, kind: host, role: cache}
   - {name: auth-01, kind: host, role: api}
   - {name: auth-02, kind: host, role: api}
   - {name: search-01, kind: host, role: other}
   - {name: search-02, kind: host, role: other}
-  - {name: queue-01, kind: host, role: worker}
+  - {name: queue-01, kind: host, role: queue}
+  - {name: compute-01, kind: host, role: compute}
+  - {name: compute-02, kind: host, role: compute}
+  - {name: compute-03, kind: host, role: compute}
+  - {name: compute-04, kind: host, role: compute}
   - {name: worker-01, kind: host, role: worker}
   - {name: worker-02, kind: host, role: worker}
   - {name: worker-03, kind: host, role: worker}
@@ -29,14 +33,21 @@ nodes:
   - {name: web, kind: svc, role: web}
   - {name: api, kind: svc, role: api}
   - {name: db, kind: svc, role: db}
-  - {name: cache, kind: svc, role: other}
+  - {name: cache, kind: svc, role: cache}
   - {name: auth, kind: svc, role: api}
   - {name: search, kind: svc, role: other}
-  - {name: queue, kind: svc, role: worker}
+  - {name: queue, kind: svc, role: queue}
+  - {name: batch, kind: svc, role: compute}
   - {name: uplink-1, kind: link, role: uplink}
   - {name: uplink-2, kind: link, role: uplink}
   - {name: wan-dc2, kind: link, role: uplink}
   - {name: wan-cdn, kind: link, role: uplink}
+  - {name: san-01, kind: device, role: storage}
+  - {name: nas-01, kind: device, role: storage}
+  - {name: core-sw-01, kind: device, role: network}
+  - {name: core-sw-02, kind: device, role: network}
+  - {name: fw-01, kind: device, role: network}
+  - {name: lb-01, kind: device, role: network}
 edges:
   - {dependent: web, dependency: api, kind: depends_on}
   - {dependent: api, dependency: db, kind: depends_on}
@@ -44,11 +55,28 @@ edges:
   - {dependent: api, dependency: auth, kind: depends_on}
   - {dependent: web, dependency: search, kind: depends_on}
   - {dependent: api, dependency: queue, kind: depends_on}
+  - {dependent: batch, dependency: queue, kind: depends_on}
   - {dependent: web, dependency: uplink-1, kind: routes_via}
   - {dependent: api, dependency: uplink-1, kind: routes_via}
   - {dependent: auth, dependency: wan-dc2, kind: routes_via}
   - {dependent: queue, dependency: wan-dc2, kind: routes_via}
   - {dependent: search, dependency: wan-cdn, kind: routes_via}
+  - {dependent: db, dependency: san-01, kind: depends_on}
+  - {dependent: queue, dependency: nas-01, kind: depends_on}
+  - {dependent: search, dependency: nas-01, kind: depends_on}
+  - {dependent: batch, dependency: nas-01, kind: depends_on}
+  - {dependent: web, dependency: core-sw-01, kind: routes_via}
+  - {dependent: api, dependency: core-sw-01, kind: routes_via}
+  - {dependent: auth, dependency: core-sw-01, kind: routes_via}
+  - {dependent: cache, dependency: core-sw-01, kind: routes_via}
+  - {dependent: db, dependency: core-sw-02, kind: routes_via}
+  - {dependent: queue, dependency: core-sw-02, kind: routes_via}
+  - {dependent: search, dependency: core-sw-02, kind: routes_via}
+  - {dependent: batch, dependency: core-sw-02, kind: routes_via}
+  - {dependent: web, dependency: lb-01, kind: routes_via}
+  - {dependent: lb-01, dependency: fw-01, kind: routes_via}
+  - {dependent: fw-01, dependency: uplink-1, kind: routes_via}
+  - {dependent: fw-01, dependency: uplink-2, kind: routes_via}
   - {dependent: web, dependency: web-01, kind: runs_on}
   - {dependent: web, dependency: web-02, kind: runs_on}
   - {dependent: web, dependency: web-03, kind: runs_on}
@@ -71,6 +99,10 @@ edges:
   - {dependent: queue, dependency: worker-01, kind: runs_on}
   - {dependent: queue, dependency: worker-02, kind: runs_on}
   - {dependent: queue, dependency: worker-03, kind: runs_on}
+  - {dependent: batch, dependency: compute-01, kind: runs_on}
+  - {dependent: batch, dependency: compute-02, kind: runs_on}
+  - {dependent: batch, dependency: compute-03, kind: runs_on}
+  - {dependent: batch, dependency: compute-04, kind: runs_on}
   - {dependent: gw-01, dependency: uplink-1, kind: routes_via}
   - {dependent: gw-01, dependency: uplink-2, kind: routes_via}
   - {dependent: gw-02, dependency: wan-dc2, kind: routes_via}

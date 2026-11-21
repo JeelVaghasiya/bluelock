@@ -43,7 +43,7 @@ def _v7(u: UUID) -> UUID:
 UtcTs = Annotated[AwareDatetime, AfterValidator(_utc)]
 UUID7 = Annotated[UUID, AfterValidator(_v7)]
 Hex12 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{12}$")]
-SrcId = Annotated[str, StringConstraints(pattern=r"^(h|ip|u|svc|link):[0-9a-f]{12}$")]
+SrcId = Annotated[str, StringConstraints(pattern=r"^(h|ip|u|svc|link|dev):[0-9a-f]{12}$")]  # dev = storage/network device
 TzOffset = Annotated[str, StringConstraints(pattern=r"^[+-]\d{2}:\d{2}$")]
 CollectorId = Annotated[str, StringConstraints(pattern=r"^col-[0-9a-f]{4,12}$")]
 RuleName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{2,32}$")]
@@ -54,10 +54,20 @@ SafeText = Annotated[
 NonNeg = Annotated[int, Field(ge=0)]
 Region = Literal["ap-south", "eu-west"]
 MetricName = Literal[
-    "cpu", "mem", "disk", "disk_hours_to_full", "net_in", "net_out", "net_util",
-    "rtt", "jitter", "loss", "up", "error_rate",
+    # compute + any node
+    "cpu", "mem", "disk", "disk_hours_to_full", "net_in", "net_out", "net_util", "load",
+    # network paths and devices
+    "rtt", "jitter", "loss", "if_errors", "drops", "sessions",
+    # web apps / services
+    "up", "error_rate", "req_rate", "apdex",
+    # databases
+    "db_conns", "qps", "query_ms", "repl_lag", "cache_hit",
+    # other applications (cache, queue)
+    "evictions", "queue_depth", "consumer_lag",
+    # storage
+    "iops", "io_latency", "io_bytes", "capacity",
 ]
-Unit = Literal["%", "ms", "B/s", "ratio", "h"]
+Unit = Literal["%", "ms", "B/s", "ratio", "h", "ops/s", "count"]
 Severity = Literal["info", "low", "medium", "high", "critical"]
 
 
@@ -147,8 +157,9 @@ class HeartbeatRecord(_Strict):
 
 class TopoNode(_Strict):
     src: SrcId
-    kind: Literal["host", "svc", "link"]
-    role: Literal["web", "api", "db", "gateway", "uplink", "worker", "other"]
+    kind: Literal["host", "svc", "link", "device"]
+    role: Literal["web", "api", "db", "gateway", "uplink", "worker", "other",
+                  "compute", "storage", "network", "cache", "queue"]
 
 
 class TopoEdge(_Strict):

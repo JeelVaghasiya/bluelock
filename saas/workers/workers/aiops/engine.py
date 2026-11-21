@@ -15,7 +15,10 @@ from .explain import explain
 from .models import HST, AutoEncoder, features_for
 
 MODEL_METRICS = {"cpu", "mem", "disk", "net_util", "rtt", "loss", "jitter", "up", "error_rate"}
-L1_METRICS = {"cpu", "mem", "disk", "rtt", "loss", "jitter", "up", "error_rate", "net_util"}
+L1_METRICS = {"cpu", "mem", "disk", "rtt", "loss", "jitter", "up", "error_rate", "net_util",
+              # wider estate: the signals that mean trouble (pure volume metrics such as qps or iops are context)
+              "io_latency", "query_ms", "repl_lag", "cache_hit", "apdex", "queue_depth", "consumer_lag",
+              "if_errors", "drops"}
 
 
 @dataclass
@@ -79,7 +82,7 @@ class TenantEngine:
         src, metric = rec["src"], rec["metric"]
         stat_val = rec.get("avg")
         self._models(src, rec["event_ts"], metric, float(stat_val))
-        if metric not in L1_METRICS or rec.get("rev", 0) > 0:
+        if metric not in L1_METRICS or rec.get("rev", 0) > 0 or (metric == "net_util" and src.startswith("dev:")):
             return []
         v = self.bank.observe(src, metric, rec)
         if v.suppressed:

@@ -22,7 +22,7 @@ export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
 }
 
-const KIND_LABEL: Record<string, string> = { h: "host", svc: "svc", link: "link", ip: "ip", u: "user" };
+const KIND_LABEL: Record<string, string> = { h: "host", svc: "svc", link: "link", dev: "device", ip: "ip", u: "user" };
 export function shortSrc(src?: string | null): string {
   if (!src) return "—";
   const [p, h] = src.split(":");
@@ -47,7 +47,34 @@ export function fmtMetric(metric: string, v: number | null | undefined): string 
     case "cpu":
     case "mem":
     case "disk":
+    case "net_util":
+    case "capacity":
       return `${v.toFixed(1)}%`;
+    case "apdex":
+    case "load":
+      return v.toFixed(2);
+    case "cache_hit":
+      return `${(v * 100).toFixed(1)}%`;
+    case "query_ms":
+    case "io_latency":
+    case "repl_lag":
+    case "consumer_lag":
+      return v >= 1000 ? `${(v / 1000).toFixed(1)} s` : v >= 100 ? `${Math.round(v)} ms` : `${v.toFixed(1)} ms`;
+    case "req_rate":
+    case "qps":
+    case "iops":
+    case "evictions":
+    case "if_errors":
+    case "drops":
+      return `${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(v < 10 ? 1 : 0)}/s`;
+    case "db_conns":
+    case "queue_depth":
+    case "sessions":
+      return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`;
+    case "io_bytes":
+    case "net_in":
+    case "net_out":
+      return v >= 1e9 ? `${(v / 1e9).toFixed(2)} GB/s` : v >= 1e6 ? `${(v / 1e6).toFixed(1)} MB/s` : `${(v / 1e3).toFixed(0)} kB/s`;
     case "loss":
       return `${v.toFixed(2)}%`;
     case "rtt":
@@ -97,6 +124,27 @@ export const METRIC_LABEL: Record<string, string> = {
   error_rate: "Error rate",
   up: "Availability",
   disk_hours_to_full: "Disk full in",
+  net_in: "Traffic in",
+  net_out: "Traffic out",
+  net_util: "Port / NIC utilisation",
+  load: "Load average (per core)",
+  req_rate: "Requests",
+  apdex: "Apdex",
+  db_conns: "DB connections",
+  qps: "Queries",
+  query_ms: "Query time",
+  repl_lag: "Replication lag",
+  cache_hit: "Cache hit ratio",
+  evictions: "Evictions",
+  queue_depth: "Queue depth",
+  consumer_lag: "Consumer lag",
+  iops: "IOPS",
+  io_latency: "I/O latency",
+  io_bytes: "I/O throughput",
+  capacity: "Capacity used",
+  if_errors: "Interface errors",
+  drops: "Dropped packets",
+  sessions: "Active sessions",
 };
 
 export const cx = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(" ");

@@ -79,6 +79,61 @@ rules:
       max_blast_radius: 1
     why: "{fail_count} failed logins across {distinct_users} accounts from {root} in {window_s}s ({pattern})"
 
+  - id: storage_degradation
+    when: {root_kind: device, root_metrics_any: [io_latency, queue_depth, capacity]}
+    action:
+      key: failover_device
+      text: "Move I/O on {root} to the replica array and check its disks/controllers"
+      reversible: true
+      rollback_key: failback_device
+      requires_role: tenant-admin
+      max_blast_radius: 8
+    why: "Storage {root} {metric} rose to {value} before {impacted_n} dependent component(s) slowed down"
+
+  - id: network_device_errors
+    when: {root_kind: device, root_metrics_any: [if_errors, drops, net_util]}
+    action:
+      key: failover_device
+      text: "Shift traffic off {root} to its redundant peer and check the flapping port"
+      reversible: true
+      rollback_key: failback_device
+      requires_role: tenant-admin
+      max_blast_radius: 8
+    why: "Network device {root} {metric} rose to {value}; {impacted_n} service(s) routed through it degraded"
+
+  - id: db_replication_lag
+    when: {root_kind: svc, root_metrics_any: [repl_lag]}
+    action:
+      key: restart_service
+      text: "Check the replica of {root}: restart replication and look for long-running transactions"
+      reversible: true
+      rollback_key: none
+      requires_role: tenant-admin
+      max_blast_radius: 4
+    why: "Replication lag on {root} reached {value} against a baseline of {baseline}"
+
+  - id: cache_degradation
+    when: {root_kind: svc, root_metrics_any: [cache_hit, evictions]}
+    action:
+      key: scale_out
+      text: "Add cache capacity for {root} or warm it; misses are falling through to the database"
+      reversible: true
+      rollback_key: scale_in
+      requires_role: tenant-admin
+      max_blast_radius: 4
+    why: "Hit ratio on {root} fell to {value} against a baseline of {baseline}"
+
+  - id: queue_backlog
+    when: {root_kind: svc, root_metrics_any: [queue_depth, consumer_lag]}
+    action:
+      key: scale_out
+      text: "Add consumers for {root}; the backlog is growing faster than it drains"
+      reversible: true
+      rollback_key: scale_in
+      requires_role: tenant-admin
+      max_blast_radius: 4
+    why: "{root} {metric} climbed to {value} against a baseline of {baseline}"
+
   - id: service_errors
     when: {root_kind: svc, root_metrics_any: [error_rate, up]}
     action:

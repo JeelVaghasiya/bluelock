@@ -15,7 +15,7 @@ export default function Infrastructure() {
   const openPanel = useStore((s) => s.openPanel);
   const panel = useStore((s) => s.panel);
   const [groupBy, setGroupBy] = useState<GroupBy>("role");
-  const [kind, setKind] = useState<"all" | "host" | "svc" | "link">("all");
+  const [kind, setKind] = useState<"all" | "host" | "svc" | "link" | "device">("all");
   const [only, setOnly] = useState<HealthState | null>(null);
   const [q, setQ] = useState("");
   const { data } = useQuery({ queryKey: ["sources"], queryFn: () => api<{ sources: Source[] }>("/api/sources"), refetchInterval: 5000 });
@@ -35,7 +35,7 @@ export default function Infrastructure() {
     <div className="mx-auto max-w-[1680px] space-y-3 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <input className="input w-64" placeholder="filter: role, site, code…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Tabs value={kind} onChange={setKind} options={[{ v: "all", label: "all" }, { v: "host", label: "hosts" }, { v: "svc", label: "services" }, { v: "link", label: "links" }]} />
+        <Tabs value={kind} onChange={setKind} options={[{ v: "all", label: "all" }, { v: "host", label: "hosts" }, { v: "svc", label: "services" }, { v: "link", label: "links" }, { v: "device", label: "devices" }]} />
         <div className="flex gap-1">
           {STATES.map((st) => (
             <button

@@ -30,4 +30,4 @@ security:
 fast_path:
   consecutive_samples: 3
 actions_allowlist: [failover_uplink, failback_uplink, restart_service, block_source_ip, unblock_source_ip, scale_out, scale_in,
-                    enable_auth_rate_limit, disable_auth_rate_limit]
+                    enable_auth_rate_limit, disable_auth_rate_limit, failover_device, failback_device]

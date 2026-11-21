@@ -51,12 +51,21 @@ def test_large_profile_matches_its_tier1_topology():
     s = PROFILES["large"]("acme")
     text = (Path(__file__).resolve().parents[2] / "config" / "sites" / "acme-large" / "topology.yaml").read_text()
     names = set(re.findall(r"\{name: ([\w-]+),", text))
-    assert names == set(s.hosts) | set(s.services) | set(s.links)
-    # every role must be in the frozen trustline.v1 set, or the topology record (and its payload) is rejected
-    assert set(re.findall(r"role: (\w+)", text)) <= {"web", "api", "db", "gateway", "uplink", "worker", "other"}
+    assert names == set(s.hosts) | set(s.services) | set(s.links) | set(s.devices)
+    # every role and kind must be in the trustline.v1 allow-list, or the topology record (and payload) is rejected
+    from trustline_schema.v1 import TopoNode
+    roles = set(TopoNode.model_fields["role"].annotation.__args__)
+    kinds = set(TopoNode.model_fields["kind"].annotation.__args__)
+    assert set(re.findall(r"role: (\w+)", text)) <= roles and set(re.findall(r"kind: (\w+)}", text)) - {
+        "depends_on", "runs_on", "routes_via"} <= kinds
+    # all six estate categories are present
+    assert {"compute", "storage", "network", "db", "web", "cache", "queue"} <= set(re.findall(r"role: (\w+)", text))
     std = SITES["acme"]  # stories and scenarios target these names: the large site must keep them
     assert set(std.hosts) <= set(s.hosts) and set(std.services) <= set(s.services) and set(std.links) <= set(s.links)
-    assert len(s.hosts) == 24 and len(s.services) == 7 and len(s.links) == 4
+    assert len(s.hosts) == 28 and len(s.services) == 8 and len(s.links) == 4 and len(s.devices) == 6
+    # every edge endpoint is a declared node
+    for a, b in re.findall(r"dependent: ([\w-]+), dependency: ([\w-]+)", text):
+        assert a in names and b in names, (a, b)
 
 
 def test_latency_ramp_only_hits_services_behind_that_link():

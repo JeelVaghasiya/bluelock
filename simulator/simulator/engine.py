@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from .faults import FaultBook
+from .infra import AppState, NetDeviceState, StorageState
 from .logs import app_log, secret_log, sshd_line
 from .signals import HostState, LinkState, ServiceState, diurnal
 from .sites import Site
@@ -44,6 +45,22 @@ class SiteRuntime:
                 st.base_rtt = float(vr.uniform(10, 26))
             for st in self.services.values():
                 st.base_ms = float(vr.uniform(6, 22))
+        # wider estate (large profile): own random stream, so the host/link/service signals above are unchanged
+        ir = np.random.default_rng(seed + 11)
+        self.irng = ir
+        self.apps = {s: AppState(role=site.service_roles.get(s, "other"), rng=ir, scale=float(ir.uniform(0.6, 1.4)))
+                     for s in site.services} if site.service_roles else {}
+        self.storage: dict[str, StorageState] = {}
+        self.netdev: dict[str, NetDeviceState] = {}
+        for d, role in site.devices.items():
+            k = site.device_kinds.get(d, "switch" if role == "network" else "san")
+            if role == "storage":
+                san = k == "san"
+                self.storage[d] = StorageState(rng=ir, cap_iops=20000 if san else 6000, base_ms=0.9 if san else 2.0,
+                                               io_size=16384 if san else 65536, capacity=float(ir.uniform(55, 72)))
+            else:
+                self.netdev[d] = NetDeviceState(rng=ir, kind=k, base_util=float(ir.uniform(10, 24)),
+                                                mem=round(float(ir.uniform(32, 55)), 1))
         self.book = FaultBook()
         self.pending_secret: list[str | None] = []
         self.last_records: list[dict] = []
@@ -78,10 +95,35 @@ class SiteRuntime:
                 "disk_fill": sum(f.magnitude for f in book.of("disk_fill", now) if f.target == host),
             }
             vals = st.step(now, self.tz_h, mods)
+            if self.site.dynamic:  # load average per core follows CPU
+                vals["load"] = max(0.0, vals["cpu"] / 100 * 1.15 + float(self.irng.normal(0, 0.03)))
+            mine = []
             for name, unit in (("cpu", "%"), ("mem", "%"), ("disk", "%"), ("net_in", "B/s"),
-                               ("net_out", "B/s"), ("net_util", "%")):
-                recs.append(self._rec(ts, kind="metric", host=host, name=name,
-                                      value=round(vals[name], 3), unit=unit))
+                               ("net_out", "B/s"), ("net_util", "%"), ("load", "ratio")):
+                if name in vals:
+                    mine.append(self._rec(ts, kind="metric", host=host, name=name,
+                                          value=round(vals[name], 3), unit=unit))
+            recs += mine
+            if host in self.site.double_scraped:  # a second agent reports the same readings (new event ids)
+                recs += [{**r, "eid": str(uuid.uuid4()), "agent": "node-exporter"} for r in mine]
+
+        # ---- storage arrays and network devices (large profile)
+        load_now = diurnal(now, self.tz_h) if self.site.dynamic else 0.0
+        io_lat: dict[str, float] = {}
+        dev_errs: dict[str, float] = {}
+        for d, st in self.storage.items():
+            mult = 1.0
+            for f in book.of("storage_latency", now):
+                if f.target == d:
+                    mult *= f.magnitude
+            for name, v, unit in st.step(load_now, {"io_mult": mult}):
+                recs.append(self._rec(ts, kind="metric", device=d, name=name, value=round(v, 4), unit=unit))
+            io_lat[d] = st.last_latency
+        for d, st in self.netdev.items():
+            e = sum(f.magnitude for f in book.of("nic_errors", now) if f.target == d)
+            dev_errs[d] = e
+            for name, v, unit in st.step(load_now, {"if_errors": e}):
+                recs.append(self._rec(ts, kind="metric", device=d, name=name, value=round(v, 4), unit=unit))
 
         # ---- links (in the large profile, busy hours congest links and slow services down)
         load = diurnal(now, self.tz_h) if self.site.dynamic else 0.0
@@ -119,11 +161,29 @@ class SiteRuntime:
             via = self.site.service_links.get(svc)
             if via in book.failed_over:
                 via = "uplink-2"
+            # the wider estate leaks into the service: slow storage and a flapping switch cost latency and errors
+            stor = io_lat.get(self.site.service_storage.get(svc, ""), 0.0)
+            sw_err = dev_errs.get(self.site.service_switch.get(svc, ""), 0.0)
+            if stor > 3:
+                svc_err_extra[svc] += min(0.08, 0.004 * (stor - 3))
+            if sw_err:
+                svc_err_extra[svc] += min(0.06, 0.0012 * sw_err)
             c = st.step({"error_rate": svc_err_extra[svc]}, link_rtt.get(via) if via else None, load)
+            c["latency_ms"] = round(c["latency_ms"] + 2.0 * stor + 0.5 * sw_err, 1)
             recs.append(self._rec(ts, kind="check", service=svc, ok=c["ok"],
                                   latency_ms=c["latency_ms"], status=c["status"]))
             recs.append(self._rec(ts, kind="metric", service=svc, name="error_rate",
                                   value=c["error_rate"], unit="ratio"))
+            app = self.apps.get(svc)
+            if app:
+                fx = {"cache_miss": sum(f.magnitude for f in book.of("cache_miss_storm", now)),  # falls through to db
+                      "repl_lag": sum(f.magnitude for f in book.of("repl_lag", now) if f.target == svc),
+                      "consumer_slow": min(0.95, sum(f.magnitude for f in book.of("queue_backlog", now)
+                                                     if f.target == svc))}
+                if app.role not in ("cache", "db"):
+                    fx["cache_miss"] = 0.0
+                for name, v, unit in app.step(load, fx, c["error_rate"], c["latency_ms"], stor or 1.0):
+                    recs.append(self._rec(ts, kind="metric", service=svc, name=name, value=round(v, 4), unit=unit))
 
         # ---- application logs (2-4 per second)
         n_logs = int(self.rng.integers(2, 5)) if not self.site.dynamic else int(self.rng.integers(4, 7) + 10 * load)
@@ -225,14 +285,19 @@ class SiteRuntime:
             return {"ok": True, "detail": "traffic restored to primary uplink"}
         if key == "restart_service":
             hosts = self.site.services.get(target or "", [target]) if target else list(self.hosts)
-            n = b.clear("service_errors", target)
+            n = sum(b.clear(k, target) for k in ("service_errors", "repl_lag", "cache_miss_storm", "queue_backlog"))
             for h in hosts:
                 n += b.clear("mem_leak", h) + b.clear("cpu_spike", h)
                 if h in self.hosts:
                     self.hosts[h].mem = 48.0 if self.hosts[h].role != "db" else 60.0
             return {"ok": True, "detail": f"restarted {target}; {n} fault(s) cleared"}
+        if key == "failover_device":  # move I/O to the replica array / traffic to the redundant device
+            n = sum(b.clear(k, target) for k in ("storage_latency", "nic_errors"))
+            return {"ok": True, "detail": f"traffic moved off {target}; {n} device fault(s) mitigated"}
+        if key == "failback_device":
+            return {"ok": True, "detail": f"traffic restored to {target}"}
         if key in ("scale_out",):
-            n = b.clear("cpu_spike", target)
+            n = b.clear("cpu_spike", target) + b.clear("queue_backlog", target) + b.clear("cache_miss_storm", target)
             return {"ok": True, "detail": f"load shifted from {target}; {n} fault(s) cleared"}
         if key == "scale_in":
             return {"ok": True, "detail": "capacity returned to baseline"}
