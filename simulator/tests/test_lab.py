@@ -88,3 +88,13 @@ def test_restart_does_not_look_like_a_memory_leak():
             assert abs(st.mem - fresh.hosts[h].mem) < 3.0, (profile, h, st.mem, fresh.hosts[h].mem)
     levels = {round(st.mem) for st in SiteRuntime(PROFILES["large"]("acme"), 1).hosts.values()}
     assert len(levels) > 8  # large profile keeps a varied fleet
+
+
+def test_healthy_services_pass_health_checks_but_error_spikes_fail_them():
+    import numpy as np
+    from simulator.signals import ServiceState
+    st = ServiceState(rng=np.random.default_rng(5))
+    calm = [st.step({}, 20.0, load=1.0)["ok"] for _ in range(2000)]
+    assert min(calm) == 1  # a healthy service at peak load never shows as down
+    spike = [st.step({"error_rate": 0.10}, 20.0)["ok"] for _ in range(500)]
+    assert 0.5 < 1 - sum(spike) / len(spike) < 0.99  # an error spike knocks most checks over

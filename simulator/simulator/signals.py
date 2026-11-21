@@ -109,6 +109,8 @@ class ServiceState:
         latency = float(self.rng.lognormal(math.log(self.base_ms), 0.3)) * (1 + 0.5 * load)
         if link_rtt:
             latency += link_rtt * 0.6
-        ok = self.rng.random() > min(0.95, err * 3) if not faults.get("down") else False
+        # health check: background error noise (~0.5 %) never fails it; a real error spike (> 2 %) does,
+        # increasingly often (service_errors at +10 % fails ~80 % of checks)
+        ok = self.rng.random() > min(0.95, max(0.0, err - 0.02) * 10) if not faults.get("down") else False
         return {"error_rate": round(min(1.0, err), 5), "latency_ms": round(latency, 1),
                 "ok": bool(ok), "status": 200 if ok else 503}
