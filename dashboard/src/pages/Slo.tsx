@@ -82,7 +82,7 @@ export default function SloPage() {
           ))}
         </div>
         <div className="mt-2 text-[11.5px] text-t3">
-          Window wait dominates by design (5 s aggregation windows). Excluded from the SLO and counted separately: backlog replays {data.excluded.backlog ?? 0}, late revisions {data.excluded.revision ?? 0}.
+          Window wait dominates by design (5 s aggregation windows). Excluded from the SLO and counted separately: backlog replays {data.excluded.backlog ?? 0}, late revisions {data.excluded.revision ?? 0}, hidden or asleep browser tabs {data.excluded.client_stall ?? 0}.
         </div>
       </Panel>
       <div className="grid gap-3 lg:grid-cols-2">

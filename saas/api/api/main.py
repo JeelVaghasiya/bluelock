@@ -24,6 +24,7 @@ from .regions import REGIONS
 
 log = logging.getLogger("api")
 SIM_URL = os.environ.get("SIMULATOR_URL", "http://simulator:8090")
+CLIENT_STALL_S = 30  # push -> paint longer than this is a frozen or hidden tab, not the pipeline
 SLO_TARGET_MS = {"dash": 10000, "alert": 15000, "offline": 60000}  # the brief: p95 <= 10 s, alerts <= 15 s, offline <= 60 s
 
 
@@ -763,6 +764,9 @@ async def render_ack(client: Client, items: list[dict]) -> None:
         if not start:
             continue
         excluded = "backlog" if t.get("lane") == "backlog" else ("revision" if t.get("revision") else None)
+        push = parse_ts(t.get("push_ts"))
+        if not excluded and push and (render - push).total_seconds() > CLIENT_STALL_S:
+            excluded = "client_stall"  # browser held it (tab hidden / laptop asleep): not pipeline latency
         samples.append((client.user.tenant, kind, it.get("id"), t.get("lane"), start, parse_ts(t.get("collect_ts")),
                         parse_ts(t.get("sent_ts")), parse_ts(t.get("recv_ts")), parse_ts(t.get("stored_ts")),
                         parse_ts(t.get("push_ts")), render, (render - start).total_seconds() * 1000, excluded))

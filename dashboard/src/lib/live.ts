@@ -21,10 +21,16 @@ const KEYS: Record<string, string[][]> = {
 
 const afterPaint = () => new Promise<number>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(Date.now()))));
 
+// A hidden tab never paints (rAF is suspended), so acks would wait until the tab is shown again and
+// report minutes or hours of "latency". Only measure what was received AND painted while visible.
+let hiddenEpoch = 0;
+const visible = () => typeof document === "undefined" || document.visibilityState === "visible";
+if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => { if (!visible()) hiddenEpoch++; });
+
 export function startLive(qc: QueryClient, navigate: (to: string) => void): () => void {
   const st = useStore.getState();
   const pending = new Set<string>();
-  const acks: { id: string; kind: string }[] = [];
+  const acks: { id: string; kind: string; epoch: number }[] = [];
   let flushTimer: number | undefined;
   let offsetMs = 0;
   const seenIncidents = new Set<string>();
@@ -44,7 +50,10 @@ export function startLive(qc: QueryClient, navigate: (to: string) => void): () =
     const items = acks.splice(0);
     if (!items.length) return;
     const render = await afterPaint();
-    send({ type: "render_ack", items: items.map((i) => ({ ...i, render_ts: new Date(render).toISOString() })) });
+    // drop anything that was waiting while the tab was hidden: that wait is the browser's, not the pipeline's
+    const real = items.filter((i) => i.epoch === hiddenEpoch && visible());
+    if (!real.length) return;
+    send({ type: "render_ack", items: real.map(({ id, kind }) => ({ id, kind, render_ts: new Date(render).toISOString() })) });
   };
   const schedule = () => {
     if (flushTimer === undefined) flushTimer = window.setTimeout(flush, Math.max(350, MIN_GAP - (Date.now() - lastFlush)));
@@ -81,8 +90,9 @@ export function startLive(qc: QueryClient, navigate: (to: string) => void): () =
     }
     if (env.type === "metric") s.touchPayload();
     if (env.type === "incident" && env.data.created) notify(env.data);
-    if (env.id && (env.type === "metric" || env.type === "health")) acks.push({ id: env.id, kind: "dash" });
-    if (env.id && (env.type === "incident" || env.type === "finding") && env.timing?.breach_ts) acks.push({ id: env.id, kind: "alert" });
+    const measure = visible();
+    if (measure && env.id && (env.type === "metric" || env.type === "health")) acks.push({ id: env.id, kind: "dash", epoch: hiddenEpoch });
+    if (measure && env.id && (env.type === "incident" || env.type === "finding") && env.timing?.breach_ts) acks.push({ id: env.id, kind: "alert", epoch: hiddenEpoch });
     pending.add(env.type);
     schedule();
   };
