@@ -6,6 +6,11 @@ so a daily cycle is "normal". robust z = (x - median) / (1.4826 * MAD + eps).
 
 Noise control: learn-only warm-up, raise when |z| > 3 in 2 of the last 3 windows
 (persistence), clear only after 3 normal windows (hysteresis).
+
+Level shifts: anomalous windows are not learned, so an incident does not become the new normal. But a
+signal that sits at a new level for ADAPT_WINDOWS (10 min) is a level shift (resized host, new config),
+not an incident: from then on it is learned, the median moves within ~5 min and the alert clears. The
+hour-of-day buckets describe the old level, so they are dropped when the shift is accepted.
 """
 from __future__ import annotations
 
@@ -14,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import numpy as np
+
+ADAPT_WINDOWS = 120  # 10 min of 5 s windows
 
 UNIT_FLOOR = {"cpu": 1.0, "mem": 0.5, "disk": 0.5, "rtt": 1.0, "jitter": 0.5, "loss": 0.2, "up": 0.01,
               "error_rate": 0.002, "net_in": 1e4, "net_out": 1e4, "net_util": 0.2}
@@ -33,6 +40,8 @@ class Baseline:
     active: bool = False
     onset_ts: str | None = None
     last_z: float = 0.0
+    anom_run: int = 0  # consecutive anomalous windows
+    shifted: bool = False  # adopting a level shift: score against the ring, not stale hour buckets
 
     def stats(self, hour: int | None) -> tuple[float, float, int]:
         src = self.hours.get(hour) if hour is not None else None
@@ -108,7 +117,7 @@ class BaselineBank:
         x = float(rec.get(STAT.get(metric, "avg"), rec.get("avg")))
         ts = rec.get("event_ts")
         hour = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc).hour if ts else None
-        z, med, _ = bl.score(x, hour)
+        z, med, _ = bl.score(x, None if bl.shifted else hour)
         v = Verdict(z=round(z, 2), baseline=round(med, 4), value=x)
         anomalous = abs(z) > self.zt
         warm = bl.seen >= self.warmup
@@ -131,7 +140,15 @@ class BaselineBank:
                 if bl.normal_run >= self.clear_after:
                     bl.active, v.cleared = False, True
         bl.last_z = v.z
-        # learn from normal windows only, so an incident does not become the new normal
+        bl.anom_run = bl.anom_run + 1 if anomalous and warm else 0
+        if v.cleared and bl.shifted:
+            bl.hours.clear()  # buckets learned the old level: start them again at the new one
+            bl.shifted = False
+        # learn from normal windows only, so an incident does not become the new normal -
+        # unless the "anomaly" has lasted ADAPT_WINDOWS: then it is a level shift
         if not anomalous or not warm:
             bl.learn(x, hour)
+        elif bl.anom_run >= ADAPT_WINDOWS:
+            bl.shifted = True
+            bl.learn(x, None)  # into the global ring only, then used instead of stale hour buckets
         return v

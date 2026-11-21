@@ -103,6 +103,13 @@ class Workers:
                 for r in await conn.fetch("SELECT key, state FROM baselines WHERE tenant_id=$1", name):
                     src, _, metric = r["key"].rpartition("|")
                     t.engine.bank.b[(src, metric)] = Baseline.from_state(r["state"])
+                # Open incidents live in the correlator's memory, which a restart empties: left open they could
+                # never auto-resolve. Close them; baselines restart un-raised, so a signal that is still abnormal
+                # is raised again within two windows as a fresh incident.
+                for r in await conn.fetch("SELECT incident_id FROM incidents WHERE tenant_id=$1 AND status <> 'resolved'",
+                                          name):
+                    await self.resolve(conn, t, r["incident_id"],
+                                       "workers restarted: re-raised as a new incident if still abnormal")
                 # clock offsets: start from the last skew ingest measured, so a backlog drained right after a
                 # restart is filed on the SaaS clock before the first live attempt arrives
                 for r in await conn.fetch("SELECT collector_id, skew_ms FROM collectors WHERE skew_ms IS NOT NULL"):

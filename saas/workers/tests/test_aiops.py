@@ -185,3 +185,28 @@ def test_health_states_and_reasons():
     assert h.evaluate()[0] == "fair"
     h.incident, h.stale = None, True
     assert h.evaluate() == ("good", "stale data: no metrics for 30 s")
+
+
+def test_level_shift_is_adopted_but_a_short_anomaly_is_not():
+    import numpy as np
+    from workers.aiops.baseline import ADAPT_WINDOWS, BaselineBank
+    rng = np.random.default_rng(3)
+    bank = BaselineBank(warmup_windows=60)
+    rec = lambda v: {"avg": float(v), "event_ts": "2026-11-21T04:00:00Z"}  # noqa: E731  (same hour bucket)
+    for _ in range(200):
+        bank.observe("h:1", "mem", rec(48 + rng.normal(0, 0.3)))
+    raised = cleared = None
+    for i in range(ADAPT_WINDOWS + 200):  # host now sits at 60 %: a level shift
+        v = bank.observe("h:1", "mem", rec(60 + rng.normal(0, 0.3)))
+        raised = i if v.raised and raised is None else raised
+        if v.cleared:
+            cleared = i
+            break
+    assert raised is not None and raised < 3
+    assert cleared is not None and ADAPT_WINDOWS <= cleared <= ADAPT_WINDOWS + 120  # ~10-20 min, then quiet
+    assert all(min(b) > 55 for b in bank.get("h:1", "mem").hours.values())  # old-level hour buckets dropped
+    # a 5-minute spike on another host is NOT learned away: it stays raised throughout
+    for _ in range(200):
+        bank.observe("h:2", "mem", rec(48 + rng.normal(0, 0.3)))
+    states = [bank.observe("h:2", "mem", rec(60 + rng.normal(0, 0.3))) for _ in range(60)]
+    assert bank.get("h:2", "mem").active and not any(s.cleared for s in states)
