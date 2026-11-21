@@ -49,7 +49,7 @@ RULES: list[Rule] = [
         group=1),
 ]
 
-MARKER = re.compile(r"<(?:secret|u|ip|h|svc|link|person):[a-z0-9_]+>|<(?:num|hex|uuid|path|person)>")
+MARKER = re.compile(r"<(?:secret|u|ip|h|svc|link|dev|person):[a-z0-9_]+>|<(?:num|hex|uuid|path|person)>")
 
 
 def scrub(text: str) -> tuple[str, dict[str, int], list[tuple[int, int, str]]]:

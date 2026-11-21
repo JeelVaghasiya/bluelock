@@ -7,7 +7,7 @@ from uuid import UUID
 
 import uuid6
 
-PREFIXES = ("h", "ip", "u", "svc", "link")
+PREFIXES = ("h", "ip", "u", "svc", "link", "dev")
 
 
 def new_payload_id() -> UUID:
