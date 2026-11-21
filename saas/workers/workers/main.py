@@ -377,6 +377,10 @@ class Workers:
                         ts(a.onset_ts), ts(a.last_ts), inc.incident_id,
                         None if inc.members[0] is a else f"absorbed into {inc.incident_id}")
                 elif o.kind == "incident":
+                    if inc.status != "open":
+                        # resolved by the sweeper while this update waited for a connection: writing it now
+                        # would re-attach its sources to a dead incident and pin them at "fair" forever
+                        continue
                     ev = o.evidence
                     for s in inc.srcs:
                         t.incident_of_src[s] = inc.incident_id
@@ -463,7 +467,12 @@ class Workers:
             if hs and not hs.stale and (n - last).total_seconds() > STALE_S:
                 hs.stale = True
                 changes.extend(self._reeval(t, src))
-        # incident membership changed health floor (open incident => at least Fair)
+        # incident membership changed health floor (open incident => at least Fair); a link to an incident the
+        # correlator no longer holds open is stale and must not pin the source at Fair
+        open_ids = {i.incident_id for i in t.engine.corr.open if i.status == "open"}
+        for s, i in list(t.incident_of_src.items()):
+            if i not in open_ids:
+                del t.incident_of_src[s]
         for src in list(t.health):
             if t.health[src].incident != t.incident_of_src.get(src):
                 changes.extend(self._reeval(t, src))
