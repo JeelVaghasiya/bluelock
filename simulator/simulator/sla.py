@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-# SLA targets (ms) from the brief; the SaaS's own internal targets are stricter for dash/alert.
+# SLA targets (ms) from the brief; the SaaS uses the same targets (api SLO_TARGET_MS).
 TARGETS = {"e2e": 10_000, "alert": 15_000, "offline": 60_000}
 
 

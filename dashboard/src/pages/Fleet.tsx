@@ -76,7 +76,10 @@ export default function Fleet() {
                 <td className="text-right tnum">{c.mem_mb?.toFixed(0) ?? "—"} MB</td>
                 <td className="text-right tnum">{c.buffer_depth ?? 0}</td>
                 <td className="text-right mono">{fmtNum(c.last_acked_seq ?? 0, 0)} / {fmtNum(c.last_assigned_seq ?? 0, 0)}</td>
-                <td className="text-right tnum">{c.skew_ms != null ? fmtMs(c.skew_ms) : "—"}</td>
+                <td className="text-right tnum" title="SaaS receive time minus the collector's send time (clock offset + network delay). Beyond 1 s the SaaS files this collector's timestamps on its own clock.">
+                  {c.skew_ms != null ? (c.skew_ms > 0 ? "+" : "") + fmtMs(c.skew_ms) : "—"}
+                  {c.skew_ms != null && Math.abs(c.skew_ms) > 1000 && <span className="ml-1 rounded px-1 text-[10px]" style={{ background: "color-mix(in srgb, var(--fair) 18%, transparent)", color: "var(--fair)" }}>corrected</span>}
+                </td>
               </tr>
             ))}
           </tbody>

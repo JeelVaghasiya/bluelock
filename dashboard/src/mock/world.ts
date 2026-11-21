@@ -520,8 +520,8 @@ export const mock = {
         lines_24h: Math.round(hrs * 3600 * 82), templates_24h: 214, blocked_total: 2,
       },
       slo: {
-        dash: { n: 512, p50: 820 + rnd(winOf(ms)) * 150, p95: 1460 + rnd(winOf(ms) + 1) * 300, max: 2900, target: 5000 },
-        alert: { n: 12, p50: 2100, p95: 3900 + rnd(winOf(ms) + 2) * 500, max: 5200, target: 10000 },
+        dash: { n: 512, p50: 820 + rnd(winOf(ms)) * 150, p95: 1460 + rnd(winOf(ms) + 1) * 300, max: 2900, target: 10000 },
+        alert: { n: 12, p50: 2100, p95: 3900 + rnd(winOf(ms) + 2) * 500, max: 5200, target: 15000 },
         offline: { n: 2, p50: 47000, p95: 49000, max: 49000, target: 60000 },
       },
       fleet: COLLECTORS.map((c) => ({ collector_id: c.id, state: "online", buffer_depth: 0, last_hb_event_ts: iso(winOf(ms)) })),
@@ -765,7 +765,7 @@ export const mock = {
     }
     kinds.offline = { n: 2, p50: 46800, p95: 48900, max: 48900 };
     return {
-      targets: { dash: 5000, alert: 10000, offline: 60000 }, kinds, excluded: { backlog: 41, revision: 7 },
+      targets: { dash: 10000, alert: 15000, offline: 60000 }, kinds, excluded: { backlog: 41, revision: 7 },
       hops_ms: { window_wait: 2520, seal: 140, wire: 95, store: 38, push: 12, render: 44 }, histogram: hist, recent, bucket_ms: 500,
     };
   },

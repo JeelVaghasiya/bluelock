@@ -169,7 +169,7 @@ def cmd_site(a) -> None:
         "SITE": "acme", "COLLECTOR_ID": "col-ac01", "REGION": "ap-south", "SRC_TZ": "+05:30",
         "INGEST_BASE": ingest, "SIMULATOR_URL": "http://127.0.0.1:8090", "CONTROL_URL": "https://127.0.0.1:8444",
         "HMAC_KEY": env["HMAC_KEY_ACME"], "CONFIG_DIR": str(ROOT / "config"),
-        "SITE_DIR": str(ROOT / "config" / "sites" / "acme"), "DATA_DIR": str(data),
+        "SITE_DIR": str(ROOT / "config" / "sites" / ("acme-large" if a.profile == "large" else "acme")), "DATA_DIR": str(data),
         "CERT_DIR": str(CERTS / "collectors" / "col-ac01"), "CA_FILE": str(CERTS / "ca.crt"),
         "WARMUP_SECONDS": env.get("WARMUP_SECONDS", "300"),
         "ORGANISER_MODE": env.get("ORGANISER_MODE", "off"), "ORGANISER_URL": env.get("ORGANISER_URL", ""),
@@ -181,14 +181,15 @@ def cmd_site(a) -> None:
     if not a.no_sim:
         procs["simulator"] = spawn("simulator", [PY, "-m", "simulator.main"], {
             "SITES": "acme=http://127.0.0.1:8081", "SYSLOG_TARGETS": "acme=127.0.0.1:5514",
-            "GROUND_TRUTH": str(RUN / "ground_truth.jsonl"), "SIM_SEED": "42",
+            "GROUND_TRUTH": str(RUN / "ground_truth.jsonl"), "SIM_SEED": "42", "SIM_PROFILE": a.profile,
             "COLLECTOR_LOCAL": "http://127.0.0.1:9090", "INGEST_BASE": ingest, "CERT_ROOT": str(CERTS),
             "INGEST_HOSTS": pins, "BIND_HOST": a.lab_host,
             # SLA benchmarks: the Lab logs in to the SaaS dashboard API and reads its own measurements
             "SAAS_URL": a.saas or env.get("SAAS_URL", ""), "SAAS_EMAIL": env.get("SAAS_EMAIL", "admin@acme.test"),
             "SAAS_PASSWORD": env.get("SAAS_PASSWORD") or env.get("DEMO_PASSWORD", "trustline-demo"),
             "PREWARM_MINUTES": env.get("PREWARM_MINUTES", "0")}, ROOT / "simulator")
-    print(f"\nSite 'acme' -> ingest {ingest}" + (f" (nginx-ap = {a.lan})" if a.lan else ""))
+    size = "24 hosts, 7 services, 4 links, 40-min day" if a.profile == "large" else "5 hosts"
+    print(f"\nSite 'acme' ({size}) -> ingest {ingest}" + (f" (nginx-ap = {a.lan})" if a.lan else ""))
     if a.saas:
         print(f"  SaaS dashboard      {a.saas}")
     print("  Collector local UI  http://localhost:9090   (Egress proof, raw vault, buffer)")
@@ -668,6 +669,9 @@ def main() -> None:
     s.add_argument("--lan", metavar="SERVER_IP", help="LAN mode: the SaaS laptop's IP (ingest + dashboard on that host)")
     s.add_argument("--lab-host", default="127.0.0.1",
                    help="bind address of the Simulation Lab (0.0.0.0 lets the SaaS dashboard's demo buttons reach it)")
+    s.add_argument("--profile", choices=("large", "standard"), default="large",
+                   help="large: 24 hosts / 7 services / 4 links with a compressed 40-min day (default); "
+                        "standard: the original 5-host site")
     s.add_argument("--saas", help="SaaS dashboard URL (https://xxxx.trycloudflare.com) for the Lab's SLA benchmarks")
     s.add_argument("--seconds", type=int, default=0, help="stop after N seconds (0 = run until Ctrl+C)")
     s.set_defaults(fn=cmd_site)

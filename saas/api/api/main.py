@@ -24,7 +24,7 @@ from .regions import REGIONS
 
 log = logging.getLogger("api")
 SIM_URL = os.environ.get("SIMULATOR_URL", "http://simulator:8090")
-SLO_TARGET_MS = {"dash": 5000, "alert": 10000, "offline": 60000}
+SLO_TARGET_MS = {"dash": 10000, "alert": 15000, "offline": 60000}  # the brief: p95 <= 10 s, alerts <= 15 s, offline <= 60 s
 
 
 # ====================================================================== live fan-out

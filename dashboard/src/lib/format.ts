@@ -36,8 +36,8 @@ export function fmtNum(v: number | null | undefined, digits = 1): string {
   if (a >= 1e6) return (v / 1e6).toFixed(digits) + "M";
   if (a >= 1e4) return (v / 1e3).toFixed(digits) + "k";
   if (a >= 100) return Math.round(v).toLocaleString();
+  if (Number.isInteger(v)) return String(v); // counts: "11", not "11.0"
   if (a >= 1) return v.toFixed(digits);
-  if (a === 0) return "0";
   return v.toFixed(3);
 }
 
@@ -66,8 +66,9 @@ export function fmtMetric(metric: string, v: number | null | undefined): string 
 
 export function fmtMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
-  if (ms >= 10_000) return `${(ms / 1000).toFixed(0)} s`;
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`;
+  const a = Math.abs(ms); // negative values (clock skew) format like positive ones
+  if (a >= 10_000) return `${(ms / 1000).toFixed(0)} s`;
+  if (a >= 1000) return `${(ms / 1000).toFixed(2)} s`;
   return `${Math.round(ms)} ms`;
 }
 

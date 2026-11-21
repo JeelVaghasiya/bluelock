@@ -164,6 +164,8 @@ async def ingest(req: Request):
     skew = (recv - attempt_ts).total_seconds() * 1000 if attempt_ts and lane == "live" else None
     headers = {"Nats-Msg-Id": str(payload.payload_id), "TL-Tenant": tenant, "TL-Collector": cn, "TL-Sha256": sha,
                "TL-Recv-Ts": iso(recv), "TL-Lane": lane, "TL-Attempt": str(attempt)}
+    if attempt_ts:  # every attempt (live or backlog) carries its own send time: workers estimate the clock offset
+        headers["TL-Skew-Ms"] = str(round((recv - attempt_ts).total_seconds() * 1000, 1))
     try:
         ack = await STATE["js"].publish(f"ingest.{REGION}.{tenant}", body, headers=headers, timeout=2)
     except Exception as e:

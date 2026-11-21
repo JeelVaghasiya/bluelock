@@ -42,3 +42,34 @@ def test_sla_scoring():
     # still draining after an outage: verdict pending, not failed
     out = sla.evaluate(_data(), {"outbox": {"depth": 300}}, 15)
     assert next(c for c in out["checks"] if c["id"] == "resync")["pass"] is None
+
+
+def test_large_profile_matches_its_tier1_topology():
+    import re
+    from pathlib import Path
+    from simulator.sites import PROFILES, SITES
+    s = PROFILES["large"]("acme")
+    text = (Path(__file__).resolve().parents[2] / "config" / "sites" / "acme-large" / "topology.yaml").read_text()
+    names = set(re.findall(r"\{name: ([\w-]+),", text))
+    assert names == set(s.hosts) | set(s.services) | set(s.links)
+    # every role must be in the frozen trustline.v1 set, or the topology record (and its payload) is rejected
+    assert set(re.findall(r"role: (\w+)", text)) <= {"web", "api", "db", "gateway", "uplink", "worker", "other"}
+    std = SITES["acme"]  # stories and scenarios target these names: the large site must keep them
+    assert set(std.hosts) <= set(s.hosts) and set(std.services) <= set(s.services) and set(std.links) <= set(s.links)
+    assert len(s.hosts) == 24 and len(s.services) == 7 and len(s.links) == 4
+
+
+def test_latency_ramp_only_hits_services_behind_that_link():
+    from simulator.engine import SiteRuntime
+    from simulator.sites import PROFILES
+    rt = SiteRuntime(PROFILES["large"]("acme"), 1)
+    from simulator.faults import Fault
+    rt.book.add(Fault("latency_ramp", "wan-cdn", 9.0, 0.0, 600))
+    err = {}
+    for i in range(160):
+        recs, _ = rt.tick(float(i))
+        for r in recs:
+            if r.get("kind") == "metric" and r.get("name") == "error_rate":
+                err[r["service"]] = r["value"]
+    assert err["search"] > 0.05  # search routes via wan-cdn
+    assert err["web"] < 0.03 and err["api"] < 0.03  # web/api route via uplink-1: unaffected

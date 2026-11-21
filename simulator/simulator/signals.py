@@ -3,6 +3,9 @@
 CPU   : daily sine + AR(1) noise          mem  : slow drift (+ leak on demand)
 disk  : linear fill + rotation drops      net  : diurnal + backup spikes
 rtt   : log-normal                        loss : Gilbert-Elliott two-state bursts
+
+DAY_S compresses the daily cycle for demos (the "large" profile runs a full day every 40 min, so the
+1-hour charts show real load waves instead of a flat line). 86400 = real time.
 """
 from __future__ import annotations
 
@@ -12,9 +15,12 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+DAY_S = 86400.0
+
+
 def diurnal(t: float, tz_hours: float, peak_hour: float = 14.0) -> float:
     """0..1 daily cycle in the site's local time, peaking at peak_hour."""
-    local_h = ((t / 3600.0) + tz_hours) % 24
+    local_h = ((t * 86400.0 / DAY_S / 3600.0) + tz_hours) % 24
     return 0.5 + 0.5 * math.cos((local_h - peak_hour) / 24 * 2 * math.pi)
 
 
@@ -26,12 +32,14 @@ class HostState:
     mem: float = 55.0
     disk: float = 52.0
     base_cpu: float = 35.0
+    amp: float = 18.0  # CPU swing over the daily cycle
+    phase_h: float = 0.0  # hosts peak at slightly different hours
     extra: dict = field(default_factory=dict)
 
     def step(self, t: float, tz_h: float, faults: dict) -> dict[str, float]:
-        d = diurnal(t, tz_h)
+        d = diurnal(t, tz_h + self.phase_h)
         self.cpu_ar = 0.8 * self.cpu_ar + self.rng.normal(0, 3.0)
-        cpu = self.base_cpu + 18 * d + self.cpu_ar
+        cpu = self.base_cpu + self.amp * d + self.cpu_ar
         cpu += faults.get("cpu_spike", 0.0)
         cpu = float(np.clip(cpu, 0.5, 100))
 
@@ -64,9 +72,11 @@ class LinkState:
     rng: np.random.Generator
     bad: bool = False  # Gilbert-Elliott state
 
-    def step(self, faults: dict) -> dict:
-        # rtt ~ log-normal(mu=ln 20, sigma=0.25), multiplied by any latency ramp
-        rtt = float(self.rng.lognormal(math.log(20), 0.25)) * faults.get("rtt_mult", 1.0)
+    base_rtt: float = 20.0
+
+    def step(self, faults: dict, load: float = 0.0) -> dict:
+        # rtt ~ log-normal(mu=ln base, sigma=0.25), busier at peak load, multiplied by any latency ramp
+        rtt = float(self.rng.lognormal(math.log(self.base_rtt), 0.25)) * (1 + 0.35 * load) * faults.get("rtt_mult", 1.0)
         # Gilbert-Elliott: good->bad 0.2%, bad->good 20%
         if self.bad:
             self.bad = self.rng.random() > 0.20
@@ -84,10 +94,12 @@ class LinkState:
 class ServiceState:
     rng: np.random.Generator
 
-    def step(self, faults: dict, link_rtt: float | None) -> dict:
+    base_ms: float = 12.0
+
+    def step(self, faults: dict, link_rtt: float | None, load: float = 0.0) -> dict:
         base_err = 0.004
-        err = max(0.0, self.rng.normal(base_err, 0.0015)) + faults.get("error_rate", 0.0)
-        latency = float(self.rng.lognormal(math.log(12), 0.3))
+        err = max(0.0, self.rng.normal(base_err * (1 + 0.5 * load), 0.0015)) + faults.get("error_rate", 0.0)
+        latency = float(self.rng.lognormal(math.log(self.base_ms), 0.3)) * (1 + 0.5 * load)
         if link_rtt:
             latency += link_rtt * 0.6
         ok = self.rng.random() > min(0.95, err * 3) if not faults.get("down") else False

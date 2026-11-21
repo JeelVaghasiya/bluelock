@@ -24,6 +24,7 @@ from tl_common.db import create_pool, tenant_tx
 from tl_common.live import publish
 
 from .aiops.engine import TenantEngine
+from .clock import ClockSync, shift_payload
 from .health import RANK, SourceHealth, merged_thresholds
 
 log = logging.getLogger("workers")
@@ -48,6 +49,7 @@ class Tenant:
         self.last_data: dict[str, datetime] = {}
         self.collectors: dict[str, dict] = {}  # id -> {last_hb_recv, last_hb_event_ts, state}
         self.incident_of_src: dict[str, str] = {}
+        self.clock = ClockSync()  # per-collector clock offset (site clocks may drift)
 
 
 class Workers:
@@ -101,6 +103,10 @@ class Workers:
                 for r in await conn.fetch("SELECT key, state FROM baselines WHERE tenant_id=$1", name):
                     src, _, metric = r["key"].rpartition("|")
                     t.engine.bank.b[(src, metric)] = Baseline.from_state(r["state"])
+                # clock offsets: start from the last skew ingest measured, so a backlog drained right after a
+                # restart is filed on the SaaS clock before the first live attempt arrives
+                for r in await conn.fetch("SELECT collector_id, skew_ms FROM collectors WHERE skew_ms IS NOT NULL"):
+                    t.clock.observe(r["collector_id"], float(r["skew_ms"]))
 
     # ------------------------------------------------------------------ consume
     async def consume(self, sub) -> None:
@@ -128,6 +134,10 @@ class Workers:
         lane = h.get("TL-Lane", "live")
         t = self.tenant(tenant)
         cid = p["collector_id"]
+        # file everything on the SaaS clock: a site laptop whose clock is 100 s fast must not produce
+        # negative latencies, "future" windows or late offline detection (see clock.py)
+        skew = h.get("TL-Skew-Ms")
+        p = shift_payload(p, t.clock.observe(cid, float(skew) if skew else None))
         stored = now()
         live_events: list[tuple[str, dict, dict]] = []
         async with tenant_tx(self.pool, tenant) as conn:
@@ -246,7 +256,9 @@ class Workers:
             r["buffer_depth"], r["buffer_bytes"], r["last_acked_seq"], r["last_assigned_seq"], r["redactions_total"],
             r["blocked_total"], r["dup_source_events"], r["late_beyond_horizon"], r["uptime_s"], r["saas_reachable"])
         prev = t.collectors.get(cid, {})
-        newer = not prev.get("last_hb_event_ts") or ts(r["event_ts"]) >= prev["last_hb_event_ts"]
+        last = prev.get("last_hb_event_ts")
+        # a "future" last heartbeat (stamped before a clock offset was corrected) must not block newer ones
+        newer = not last or ts(r["event_ts"]) >= last or last > now() + timedelta(seconds=5)
         if newer:
             t.collectors[cid] = {"last_hb_recv": time.time(), "last_hb_event_ts": ts(r["event_ts"]),
                                  "state": "online", "hb": r}

@@ -9,7 +9,7 @@ import numpy as np
 
 from .faults import FaultBook
 from .logs import app_log, secret_log, sshd_line
-from .signals import HostState, LinkState, ServiceState
+from .signals import HostState, LinkState, ServiceState, diurnal
 from .sites import Site
 
 
@@ -32,6 +32,18 @@ class SiteRuntime:
                       for h, r in site.hosts.items()}
         self.links = {link: LinkState(rng=self.rng) for link in site.links}
         self.services = {s: ServiceState(rng=self.rng) for s in site.services}
+        if site.dynamic:  # varied fleet: each host its own level, swing and peak hour; links and services differ
+            vr = np.random.default_rng(seed + 7)
+            for st in self.hosts.values():
+                st.base_cpu = float(vr.uniform(18, 34))
+                st.amp = float(vr.uniform(12, 24))
+                st.phase_h = float(vr.uniform(-2.5, 2.5))
+                st.mem = float(vr.uniform(40, 62))
+                st.disk = float(vr.uniform(35, 70))
+            for st in self.links.values():
+                st.base_rtt = float(vr.uniform(10, 26))
+            for st in self.services.values():
+                st.base_ms = float(vr.uniform(6, 22))
         self.book = FaultBook()
         self.pending_secret: list[str | None] = []
         self.last_records: list[dict] = []
@@ -71,7 +83,8 @@ class SiteRuntime:
                 recs.append(self._rec(ts, kind="metric", host=host, name=name,
                                       value=round(vals[name], 3), unit=unit))
 
-        # ---- links
+        # ---- links (in the large profile, busy hours congest links and slow services down)
+        load = diurnal(now, self.tz_h) if self.site.dynamic else 0.0
         link_rtt: dict[str, float] = {}
         svc_err_extra: dict[str, float] = {s: 0.0 for s in self.services}
         for link, st in self.links.items():
@@ -82,7 +95,8 @@ class SiteRuntime:
                     mods["rtt_mult"] = 1 + (f.magnitude - 1) * min(1.0, e / 60)
                     if e > 75 and link not in book.failed_over:
                         for svc, via in self.site.service_links.items():
-                            svc_err_extra[svc] += 0.09 * min(1.0, (e - 75) / 30)
+                            if via == link:  # only the services routed over the degraded link
+                                svc_err_extra[svc] += 0.09 * min(1.0, (e - 75) / 30)
             for f in book.of("packet_loss", now):
                 if f.target == link:
                     mods["loss"] = f.magnitude
@@ -93,7 +107,7 @@ class SiteRuntime:
                         for svc, via in self.site.service_links.items():
                             if via == link:
                                 svc_err_extra[svc] += 0.3
-            p = st.step(mods)
+            p = st.step(mods, load)
             link_rtt[link] = p["rtt_ms"]
             recs.append(self._rec(ts, kind="probe", link=link, target=f"probe.{link}", **p))
 
@@ -105,14 +119,15 @@ class SiteRuntime:
             via = self.site.service_links.get(svc)
             if via in book.failed_over:
                 via = "uplink-2"
-            c = st.step({"error_rate": svc_err_extra[svc]}, link_rtt.get(via) if via else None)
+            c = st.step({"error_rate": svc_err_extra[svc]}, link_rtt.get(via) if via else None, load)
             recs.append(self._rec(ts, kind="check", service=svc, ok=c["ok"],
                                   latency_ms=c["latency_ms"], status=c["status"]))
             recs.append(self._rec(ts, kind="metric", service=svc, name="error_rate",
                                   value=c["error_rate"], unit="ratio"))
 
         # ---- application logs (2-4 per second)
-        for _ in range(int(self.rng.integers(2, 5))):
+        n_logs = int(self.rng.integers(2, 5)) if not self.site.dynamic else int(self.rng.integers(4, 7) + 10 * load)
+        for _ in range(n_logs):
             host = list(self.hosts)[int(self.rng.integers(0, len(self.hosts)))]
             app = self.site.hosts[host]
             line = app_log(self.rng, self.site, host, app)

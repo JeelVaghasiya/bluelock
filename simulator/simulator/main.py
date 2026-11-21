@@ -26,7 +26,8 @@ from .control import Taps, build_router
 
 from .engine import SiteRuntime
 from .faults import CATALOGUE, DEFAULT_TARGETS, Fault
-from .sites import SITES
+from . import signals
+from .sites import PROFILES, SITES
 
 GROUND_TRUTH = Path(os.environ.get("GROUND_TRUTH", "/data/ground_truth.jsonl"))
 
@@ -42,9 +43,12 @@ def parse_map(s: str) -> dict[str, str]:
 PUSH = parse_map(os.environ.get("SITES", "acme=http://127.0.0.1:8081"))
 SYSLOG = parse_map(os.environ.get("SYSLOG_TARGETS", "acme=127.0.0.1:5514"))
 SEED = int(os.environ.get("SIM_SEED", "42"))
+# standard = the 5-host demo site; large = 24 hosts / 7 services / 4 links with a compressed day (see sites.py)
+PROFILE = os.environ.get("SIM_PROFILE", "standard") if os.environ.get("SIM_PROFILE") in PROFILES else "standard"
+signals.DAY_S = float(os.environ.get("SIM_DAY_SECONDS") or (2400 if PROFILE == "large" else 86400))
 
 RUNTIMES: dict[str, SiteRuntime] = {
-    name: SiteRuntime(SITES[name], SEED + i) for i, name in enumerate(PUSH) if name in SITES
+    name: SiteRuntime(PROFILES[PROFILE](name), SEED + i) for i, name in enumerate(PUSH) if name in SITES
 }
 STATS = {name: {"sent_json": 0, "sent_syslog": 0, "push_errors": 0, "last_error": None} for name in RUNTIMES}
 TAPS = {name: Taps() for name in RUNTIMES}

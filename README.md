@@ -86,6 +86,10 @@ python -m zipfile -e trustline-site-pack.zip .    # the zip you received from th
 python scripts/native.py site --lan 192.168.1.20  # the IP the server printed
 ```
 
+By default the site is the **large** profile: 24 hosts, 7 services and 4 links (all the original names kept), each host with its own load level and peak hour, and the daily cycle compressed to 40 minutes, so every chart shows real load waves, health changes and busier log traffic within the hour. Add `--profile standard` for the original 5-host site. An offline run of the real L1 engine over an hour of the large site raises about 22 alerts (16 of them genuine packet-loss bursts from the link model), against 7 for the standard site.
+
+The two laptops' clocks don't need to agree: ingest measures every delivery's skew, the workers estimate each collector's offset (minimum over recent attempts, like NTP) and, beyond 1 s, file its timestamps on the SaaS clock. Fleet shows the skew with a *corrected* badge.
+
 Then open:
 
 - Simulation Lab (site laptop): <http://localhost:8090>. Fire scenarios, stories, SLA benchmarks and trust-boundary attacks.
@@ -211,6 +215,7 @@ One consolidated view of every site's hosts, services, links, security signals a
 | Regional ingest | each tenant has a home region in the control-plane registry (`ap-south`, `eu-west`); collectors are given that region's ingest URL |
 | Tenant data residency | ingest refuses a tenant outside its home region (`403 residency_denied`); the API reads a tenant's data only from its home region's database |
 | UTC timestamps | every record carries a UTC `event_ts` plus the source offset `src_tz` |
+| Collector clock skew | ingest measures `receive − attempt` on every delivery; per collector the minimum over recent attempts estimates the offset; beyond 1 s every record timestamp is filed on the SaaS clock (whole seconds, sticky so window revisions still match). The payload and the egress proof are unchanged |
 | Out-of-order handling | windows by **event time**; late samples (≤ 120 s) re-open the window and re-emit it with `rev+1`; the SaaS keeps the highest `rev` |
 | Idempotent delivery | every payload has a UUIDv7 `payload_id` and a per-collector `seq`; JetStream dedupes by `Nats-Msg-Id`, the database by `payload_id` |
 
@@ -559,7 +564,7 @@ Python 3.12/3.13 (FastAPI, uvicorn, httpx, Pydantic, asyncpg, nats-py, numpy, sc
 
 ### Tests
 
-`python scripts/tl.py test unit`: collector 41, schema 12, simulator 7, AIOps 10, AI Investigator 5 (75 in total), covering redaction, allow-list blocking, egress guard, windows and late data, fast path, security detectors and the login-flood aggregation, outbox and idempotent retries, baselines (step, daily cycle, blip, flapping), correlation and root cause, confidence, playbook selection, the investigator's tool loop and policy bound, the incident-route regression, and secret highlighting in the Raw vault.
+`python scripts/tl.py test unit`: collector 41, schema 12, simulator 9, workers 13, AI Investigator 5 (80 in total), covering redaction, allow-list blocking, egress guard, windows and late data, fast path, security detectors and the login-flood aggregation, outbox and idempotent retries, baselines (step, daily cycle, blip, flapping), correlation and root cause, confidence, playbook selection, the investigator's tool loop and policy bound, the incident-route regression, and secret highlighting in the Raw vault.
 
 ### Repository layout
 

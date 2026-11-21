@@ -49,6 +49,8 @@ export default function Overview() {
   const worstPrio = openInc.reduce((a, i) => (i.priority < a ? i.priority : a), "P9");
   const incTone: Tone = worstPrio === "P1" ? "bad" : worstPrio === "P2" ? "bad" : worstPrio === "P3" ? "warn" : "good";
   const dashP95 = o?.slo.dash?.p95 ?? null;
+  const dashTarget = o?.slo.dash?.target ?? 10000;
+  const alertTarget = o?.slo.alert?.target ?? 15000;
   const redSpark = useMemo(() => (s ? bucket(s.redactions, "rule", "n").times.map((t) => s.redactions.filter((r) => r.t === t).reduce((a, r) => a + r.n, 0)) : []), [s]);
   const secSpark = useMemo(() => (s ? bucket(s.security, "severity", "n").times.map((t) => s.security.filter((r) => r.t === t).reduce((a, r) => a + r.n, 0)) : []), [s]);
   const latSpark = useMemo(() => s?.latency.filter((l) => l.kind === "dash").map((l) => l.p95) ?? [], [s]);
@@ -293,15 +295,15 @@ export default function Overview() {
             {o ? <EChart option={funnelOpt} height={210} base={false} /> : <Skeleton h={210} />}
           </Panel>
           <div className="col-span-12 grid grid-cols-2 gap-2.5 lg:col-span-4">
-            <KpiTile label="Redactions (24h)" value={o.privacy.redactions_24h} tone="calm" spark={redSpark} format={(v) => fmtNum(v, 1)} sub={`${o.privacy.by_rule.length} rule types fired`} onClick={() => nav("/trust")} />
+            <KpiTile label="Redactions (24h)" value={o.privacy.redactions_24h} tone="calm" spark={redSpark} format={(v) => fmtNum(Math.round(v))} sub={`${o.privacy.by_rule.length} rule types fired`} onClick={() => nav("/trust")} />
             <KpiTile
               label="Event → screen p95" value={(dashP95 ?? 0) / 1000} decimals={2} unit="s" spark={latSpark}
-              tone={dashP95 === null ? "calm" : dashP95 < 5000 ? "brand" : "bad"} sub="measured, target < 5 s" onClick={() => nav("/slo")}
+              tone={dashP95 === null ? "calm" : dashP95 <= dashTarget ? "brand" : "bad"} sub={`measured, target ≤ ${dashTarget / 1000} s`} onClick={() => nav("/slo")}
             />
             <KpiTile label="Raw fields received" value={0} tone="good" sub="schema allow-list + egress guard" onClick={() => nav("/trust")} />
             <KpiTile
               label="Alert latency p95" value={(o.slo.alert?.p95 ?? 0) / 1000} decimals={1} unit="s"
-              tone={(o.slo.alert?.p95 ?? 0) < 10000 ? "brand" : "bad"} sub="breach → on screen, target < 10 s" onClick={() => nav("/slo")}
+              tone={(o.slo.alert?.p95 ?? 0) <= alertTarget ? "brand" : "bad"} sub={`breach → on screen, target ≤ ${alertTarget / 1000} s`} onClick={() => nav("/slo")}
             />
           </div>
           <Panel className="col-span-12 lg:col-span-3" title="Collectors" subtitle="outbound-only, mTLS" right={<Link to="/fleet" className="text-[11.5px] text-accent">fleet ›</Link>}>
