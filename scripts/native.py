@@ -372,6 +372,7 @@ def start_postgres(env: dict) -> None:
             time.sleep(1)
     if psql("SELECT 1 FROM pg_database WHERE datname='trustline'") == "1":
         print("  postgres: database trustline exists")
+        psql(MIGRATIONS, db="trustline")
         return
     print("  postgres: creating database, roles, schema, RLS")
     psql("CREATE DATABASE trustline")
@@ -382,6 +383,13 @@ CREATE ROLE tl_api LOGIN PASSWORD '{env["PG_API_PASSWORD"]}' NOBYPASSRLS;""")
         psql((ROOT / "deploy" / "db" / "init" / f).read_text(encoding="utf-8"), db="trustline")
     ts = psql("SELECT count(*) FROM pg_extension WHERE extname='timescaledb'", db="trustline")
     print(f"  postgres: ready ({'TimescaleDB hypertables' if ts == '1' else 'plain Postgres tables'})")
+
+
+# idempotent fixes for databases created by an older schema (run on every start)
+MIGRATIONS = """
+ALTER TABLE received_payloads DROP CONSTRAINT IF EXISTS received_payloads_tenant_id_collector_id_seq_key;
+CREATE INDEX IF NOT EXISTS received_payloads_seq_idx ON received_payloads (tenant_id, collector_id, seq);
+"""
 
 
 def nginx_conf(listen: str = "8443") -> Path:

@@ -235,10 +235,12 @@ CREATE TABLE received_payloads (
   redactions   int NOT NULL DEFAULT 0,
   redactions_by_rule jsonb NOT NULL DEFAULT '{}',
   received_at  timestamptz NOT NULL,
-  stored_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (tenant_id, collector_id, seq)
+  stored_at    timestamptz NOT NULL DEFAULT now()
 );
+-- dedup is by payload_id only: a collector that loses its state.db restarts its seq counter, and treating
+-- a re-used seq as a duplicate would silently drop all of its new data
 CREATE INDEX ON received_payloads (tenant_id, received_at DESC);
+CREATE INDEX received_payloads_seq_idx ON received_payloads (tenant_id, collector_id, seq);
 
 CREATE TABLE ingest_audit (
   id           bigserial PRIMARY KEY,
