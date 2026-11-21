@@ -34,7 +34,14 @@ class HostState:
     base_cpu: float = 35.0
     amp: float = 18.0  # CPU swing over the daily cycle
     phase_h: float = 0.0  # hosts peak at slightly different hours
+    mem_target: float | None = None  # steady memory level; None = role default
     extra: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.mem = self.mem_level()  # start where memory settles, so a restart does not look like a leak
+
+    def mem_level(self) -> float:
+        return self.mem_target if self.mem_target is not None else (62.0 if self.role == "db" else 48.0)
 
     def step(self, t: float, tz_h: float, faults: dict) -> dict[str, float]:
         d = diurnal(t, tz_h + self.phase_h)
@@ -44,7 +51,7 @@ class HostState:
         cpu = float(np.clip(cpu, 0.5, 100))
 
         # memory: mean-reverting drift around a role-specific level, plus leak
-        target = 62.0 if self.role == "db" else 48.0
+        target = self.mem_level()
         self.mem += 0.02 * (target - self.mem) + self.rng.normal(0, 0.15)
         self.mem += faults.get("mem_leak", 0.0)
         self.mem = float(np.clip(self.mem, 5, 99.5))

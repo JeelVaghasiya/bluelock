@@ -73,3 +73,18 @@ def test_latency_ramp_only_hits_services_behind_that_link():
                 err[r["service"]] = r["value"]
     assert err["search"] > 0.05  # search routes via wan-cdn
     assert err["web"] < 0.03 and err["api"] < 0.03  # web/api route via uplink-1: unaffected
+
+
+def test_restart_does_not_look_like_a_memory_leak():
+    """A restarted site must start each host where its memory settles, or learned baselines see a fake leak."""
+    from simulator.engine import SiteRuntime
+    from simulator.sites import PROFILES
+    for profile in ("standard", "large"):
+        long_run = SiteRuntime(PROFILES[profile]("acme"), 1)
+        for i in range(600):  # ~50 min of 5 s windows
+            long_run.tick(float(i))
+        fresh = SiteRuntime(PROFILES[profile]("acme"), 1)
+        for h, st in long_run.hosts.items():
+            assert abs(st.mem - fresh.hosts[h].mem) < 3.0, (profile, h, st.mem, fresh.hosts[h].mem)
+    levels = {round(st.mem) for st in SiteRuntime(PROFILES["large"]("acme"), 1).hosts.values()}
+    assert len(levels) > 8  # large profile keeps a varied fleet

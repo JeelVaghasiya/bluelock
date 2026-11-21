@@ -322,7 +322,9 @@ class Workers:
                 "signals": hs.signals, "since": iso(getattr(hs, "since", now()))}
 
     async def persist_health(self, conn, t: Tenant, changes: list[tuple]) -> None:
-        for src, old, new, reason in changes:
+        # one lock order for every transaction (ingest and sweeper both upsert many rows): no deadlocks.
+        # sorted() is stable, so several changes to one source keep their order.
+        for src, old, new, reason in sorted(changes, key=lambda c: c[0]):
             hs = t.health[src]
             kind, role = t.src_kind.get(src, (_kind(src), "other"))
             await conn.execute(

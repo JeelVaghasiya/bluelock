@@ -38,7 +38,7 @@ class SiteRuntime:
                 st.base_cpu = float(vr.uniform(18, 34))
                 st.amp = float(vr.uniform(12, 24))
                 st.phase_h = float(vr.uniform(-2.5, 2.5))
-                st.mem = float(vr.uniform(40, 62))
+                st.mem = st.mem_target = float(vr.uniform(40, 62))  # level it starts at AND reverts to
                 st.disk = float(vr.uniform(35, 70))
             for st in self.links.values():
                 st.base_rtt = float(vr.uniform(10, 26))
