@@ -598,3 +598,8 @@ docs/          implementation plan, ADRs, presentation, screenshots
 - `others/`, `.env`, `config/users.yaml`, `deploy/certs/out/`, `.run/` and `dist/` are gitignored. Never commit them; `dist/*.zip` contain secrets.
 - `schema/` is the frozen contract: change it only with a version bump.
 - Tier-1 files (`config/sites/*`, HMAC keys) belong only on the site.
+
+## 7. Contributors
+
+- [JeelVaghasiya](https://github.com/JeelVaghasiya)
+- [baleshwarece-jpg](https://github.com/baleshwarece-jpg)
